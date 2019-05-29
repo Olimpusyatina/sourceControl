@@ -1,0 +1,280 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+%REM
+	Library Log
+	Created Sep 20, 2018 by Alexandr S. Olympiev/OTTO/RU
+	Description: Comments for Library
+%END REM
+Option Public
+Option Declare
+Use "PhoneDirectory"
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Class Logger
+Declare Sub Initialize
+Declare Function LOG_getLogDb() As NotesDatabase
+Declare Function appendStatistic (doc As Variant, statisticText As String) As NotesDocument
+Declare Public Function LOG_addHistory(doc As NotesDocument) As Boolean
+Declare Public Function LOG_getHistoryDoc(doc As NotesDocument) As NotesDocument
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const DesignElem = {Log}
+Private Const LOG_DB_KEY = "DELEGATION_STATISTIC"
+Private nLine As String
+
+Public Logger As Logger
+Private logDb As NotesDatabase
+
+
+
+' Library Log -> Class Logger
+' 
+' DCS-Olympiev Sep 20, 2018
+' *********************************************************************************
+Class Logger
+Private className As String
+Private currDb As NotesDatabase
+Private aLog As NotesLog
+
+Sub New
+	className = {Logger}
+	Dim s As New NotesSession
+	Set currDb = s.Currentdatabase
+	Set aLog = New NotesLog (currDb.Filepath)
+	Call aLog.OpenNotesLog(currDb.Server, "alog.nsf")
+End Sub
+
+	' Library Log -> Sub errorLog
+' DCS-Olympiev Sep 20, 2018
+' *********************************************************************************
+Sub errorLog (errNumber As String, errString As String)
+	Const FuncName = {errorLog}
+	On Error GoTo ErrH
+	
+	Dim s As New NotesSession
+	Call aLog.Logerror(errNumber, Implode(Split(errString, nLine), "~"))
+	If Not s.Isonserver Then MsgBox errString
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Sub
+
+' Library Log -> Sub actionLog
+' 
+' DCS-Olympiev Sep 20, 2018
+' *********************************************************************************
+Sub actionLog (action As String)
+	Const FuncName = {actionLog}
+	On Error GoTo ErrH
+
+	Call aLog.Logaction(Implode(Split(action,nLine), "~"))
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Sub
+
+End Class
+'++LotusScript Development Environment:2:2:Initialize:2:10
+
+Sub Initialize
+	Const FuncName = {Log - > Initialize}
+	On Error GoTo ErrH
+	nLine = Chr(10) & Chr(13)
+
+	Set logger = New Logger
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Sub
+
+
+'++LotusScript Development Environment:2:1:LOG_getLogDb:5:8
+' Library Log -> Function getLogDb
+' NotesDatabase
+' DCS-Olympiev Oct 13, 2018
+' *********************************************************************************
+Function LOG_getLogDb() As NotesDatabase
+	Const FuncName = {LOG_getLogDb}
+	On Error GoTo ErrH
+
+	If logDb Is Nothing Then Set logDb = DBT_GetDbBySearchKey(LOG_DB_KEY)
+	Set LOG_getLogDB = logDb
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:appendStatistic:5:8
+' Library Log -> Function appendStatistic
+' NotesDocument
+' DCS-Olympiev Oct 13, 2018
+' *********************************************************************************
+Function appendStatistic (doc As Variant, statisticText As String) As NotesDocument
+	Const FuncName = {appendStatistic}
+	On Error GoTo ErrH
+
+	Dim statDoc As NotesDocument
+	Dim unid As String
+	Dim s As New NotesSession
+	Dim pDoc As NotesDocument
+	Dim userName As String
+	
+	If logDb Is Nothing Then Call LOG_getLogDB()
+	Set statDoc = logDb.Createdocument()
+	
+	unid = doc.Getitemvalue("UNID")(0)
+	If unid = "" Then unid = doc.Universalid
+	userName = s.Username
+	On Error 5007 Resume Next
+	Set pDoc = PD_GetPersonDocByLN(userName)
+	On Error GoTo EndH
+
+	If pDoc Is Nothing Then
+		Call statDoc.Replaceitemvalue("statWhoRu", userName)
+		Call statDoc.Replaceitemvalue("statWhoEn", userName)
+	Else
+		Call statDoc.Replaceitemvalue("statWhoRu", pDoc.Getitemvalue("Caller")(0))
+		Call statDoc.Replaceitemvalue("statWhoEn", pDoc.Getitemvalue("CallerEn")(0))
+	End If
+	Call statDoc.replaceItemValue("form", "statistic")
+	Call statDoc.Replaceitemvalue("UNID", statDoc.Universalid)
+	Call statDoc.Replaceitemvalue("mainDocUNID", unid)
+	Call statDoc.Replaceitemvalue("dbSearchKey", DBT_getSearchKeyByDb(doc.Parentdatabase))
+	Call statDoc.Replaceitemvalue("dbReplicaID", doc.Parentdatabase.Replicaid)
+	Call statDoc.Replaceitemvalue("statDate", Now)
+	Call statDoc.replaceItemValue("statWhoLN", userName)
+
+	Call statDoc.Replaceitemvalue("statText", statisticText)
+	statDoc.Replaceitemvalue("readers", "*").Isreaders= true 
+	statDoc.Replaceitemvalue("authors", "-").Isauthors = True
+	Set appendStatistic = statDoc
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+
+
+
+
+'++LotusScript Development Environment:2:1:LOG_addHistory:1:8
+Public Function LOG_addHistory(doc As NotesDocument) As Boolean
+	On Error GoTo eh
+	Const funcName = {LOG_getHistoryDoc}
+	
+	Dim count As Integer
+	Dim docLog As NotesDocument
+	Dim HistoryKey As Variant
+	Dim key As String
+	Dim userName As NotesName
+	Dim Exception As Variant
+	
+	ReDim Exception(10)
+	Exception(0) = {CanEditAllDocs}
+	Exception(1) = {$Revisions}
+	Exception(2) = {$UpdatedBy}
+	Exception(3) = {UNID}
+	Exception(4) = {$WebFlags}
+	Exception(5) = {CanReadAllDocs}
+	Exception(6) = {Form}
+	Exception(7) = {langDb}
+	Exception(8) = {$EncryptionStatus}
+	Exception(9) = {$SignatureStatus}
+	Exception(10) = {lang}
+	
+	Set docLog = LOG_getHistoryDoc(doc)
+	count = docLog.Getitemvalue("Count")(0) + 1
+	HistoryKey = docLog.Getitemvalue("HistoryKey")
+	Set userName = New NotesName(doc.Parentdatabase.Parent.Username)
+	
+	key = Format(Now, "dd.mm.yyyy hh:nn:ss") & { } & userName.Common
+	HistoryKey = ArrayAppend(HistoryKey, key)
+	HistoryKey = FullTrim(HistoryKey)
+	
+	ForAll item In doc.Items
+		If IsNull(ArrayGetIndex(Exception, item.Name)) Then
+			Call docLog.Replaceitemvalue(item.Name & "_" & count, doc.Getitemvalue(item.Name))
+		End If
+	End ForAll
+	
+	Call docLog.Replaceitemvalue("HistoryKey", HistoryKey)
+	Call docLog.Replaceitemvalue("Count", count)
+	LOG_addHistory = docLog.Save(True, False)
+
+	GoTo fn
+eh:
+	Dim errS As String
+	errS = DesignElem & {: } & funcName & {: in line} & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:LOG_getHistoryDoc:1:8
+Public Function LOG_getHistoryDoc(doc As NotesDocument) As NotesDocument
+	On Error GoTo eh
+	Const funcName = {LOG_getHistoryDoc}
+	
+	Dim vwLog As NotesView
+	Dim dcLog As NotesDocumentCollection
+	Dim docLog As NotesDocument
+	Dim unid As String
+	Dim newVers As Boolean
+	Dim count As Integer
+
+	If logDb Is Nothing Then Call LOG_getLogDB()
+	Set vwLog = logDb.Getview("SaveLog")
+	
+	If Len(doc.Getitemvalue("UNID")(0)) = 32 Then
+		unid = doc.Getitemvalue("UNID")(0)
+	Else
+		unid = doc.Universalid
+	End If
+	Set dcLog = vwLog.Getalldocumentsbykey(unid, False)
+	newVers = False
+	If dcLog.Count < 1 Then
+		Set docLog = logDb.Createdocument()
+		newVers = True
+	Else
+		Set docLog = dcLog.Getfirstdocument()
+		Do While Not docLog Is Nothing
+			If docLog.Size < 56320 Then Exit Do
+			Set docLog = dcLog.Getnextdocument(docLog)
+		Loop
+		If docLog Is Nothing Then
+			Set docLog = logDb.Createdocument()
+			newVers = True
+		End If
+	End If
+	
+	If newVers Then
+		Call docLog.Replaceitemvalue("Form", "history")
+		Call docLog.Replaceitemvalue("mainDocUNID", unid)
+		docLog.Replaceitemvalue("CanEditAllDocs", "[CanEditAllDocs]").Isauthors = True
+		Call docLog.Replaceitemvalue("Count", -1)
+	End If
+	
+	Set LOG_getHistoryDoc = docLog
+
+	GoTo fn
+eh:
+	Dim errS As String
+	errS = DesignElem & {: } & funcName & {: in line} & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+
+

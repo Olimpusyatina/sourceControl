@@ -1,0 +1,763 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+Option Public
+Option Declare
+'Use "PhoneDirectory"
+Use "DataBaseTools"
+Use "ArrayTools"
+Use "DocumentCollection"
+
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Sub Initialize
+Declare Public Function MST_GetDepartmentDoc(key As Variant) As NotesDocument
+Declare Public Function MST_GetNextLevelHeads(doc As NotesDocument) As NotesDocumentCollection
+Declare Public Function MST_GetHeadsToLevel(lvl As Integer) As NotesDocumentCollection
+Declare Public Function MST_GetAllSubordinate(key As String) As NotesDocumentCollection
+Declare Public Function MST_GetPersonDoc(key As String) As NotesDocument
+Declare Public Function MST_GetLevelHeads(doc As NotesDocument, lvl As Integer, lvlCurr As Integer) As NotesDocumentCollection
+Declare Function MST_getCollegues (key As Variant) As DocumentCollection
+Declare Public Function MST_GetHeadMain(doc As NotesDocument) As Variant
+Declare Public Function MST_GetImmediateSubordinate(key As String) As NotesDocumentCollection
+Declare Sub MST_Initialize
+Declare Public Function MST_GetImmediateHeadSubordinate(key As String) As NotesDocumentCollection
+Declare Public Function MST_GetDepartmentHeadDoc(key As Variant) As NotesDocument
+Declare Public Function MST_GetHeads(doc As NotesDocument, hLvl As String, getAll As Boolean, other As Boolean) As Variant
+Declare Function MST_GetBySearch(macros As String) As NotesDocumentCollection
+Declare Public Function MST_GetHeadOther(doc As NotesDocument) As Variant
+Declare Function MST_GetFirstHeadWithActualEMail (doc As NotesDocument) As NotesDocument
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const libName = {ManagementStructureTools}
+Private initLib As Integer
+Private nLine As String
+
+Private dbF As NotesDatabase
+Private vwHeaders As NotesView
+Private vwOnlyHeaders As NotesView
+Private vwPersons As NotesView
+
+Private dcResult As NotesDocumentCollection
+
+
+'++LotusScript Development Environment:2:2:Initialize:1:10
+Sub Initialize
+	initLib = 0
+	Call MST_Initialize
+End Sub
+
+
+'++LotusScript Development Environment:2:1:MST_GetDepartmentDoc:1:8
+Public Function MST_GetDepartmentDoc(key As Variant) As NotesDocument
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	Dim errS As String
+	
+	Dim doc As NotesDocument
+	Dim docS As NotesDocument
+	
+	Set MST_GetDepartmentDoc = Nothing
+	If IsObject(key) Then
+		If key IsA "NotesDocument" Then
+			Set doc = key
+			Select Case doc.Getitemvalue("Form")(0)
+			Case "CP":
+				On Error Resume Next
+				Set docS = doc.ParentDatabase.Getdocumentbyunid(doc.Getitemvalue("StructureDepartmentUNID")(0))
+				On Error GoTo eh
+				If docS Is Nothing Then
+					GoTo fn
+				Else
+					Set docS = MST_GetDepartmentDoc(docS)
+				End If
+			Case "Departament", "Position", "Structure", "StructureR":
+				Set docS = doc
+				Do While docS.Isresponse
+					If docS.Universalid = docS.Parentdocumentunid Then GoTo fn
+					On Error Resume Next
+					Set docS = docS.ParentDatabase.Getdocumentbyunid(docS.Parentdocumentunid)
+					On Error GoTo eh
+					If docS Is Nothing Then GoTo fn
+				Loop
+			End Select
+		ElseIf key IsA "NotesName" Then
+			Set doc = MST_GetPersonDoc(key.Abbreviated)
+			If doc Is Nothing Then
+				GoTo fn
+			Else
+				Set docS = MST_GetDepartmentDoc(doc)
+			End If
+		Else
+			GoTo fn
+		End If
+	Else
+		If IsArray(key) Then
+			Set doc = MST_GetPersonDoc(CStr(key(0)))
+		Else
+			Set doc = MST_GetPersonDoc(CStr(key))
+		End If
+		If doc Is Nothing Then
+			GoTo fn
+		Else
+			Set docS = MST_GetDepartmentDoc(doc)
+		End If
+	End If
+	
+	Set MST_GetDepartmentDoc = docS
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetDepartmentDoc: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetNextLevelHeads:1:8
+Public Function MST_GetNextLevelHeads(doc As NotesDocument) As NotesDocumentCollection
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	Dim errS As String
+	
+	Dim formula As String
+	Dim dc As NotesDocumentCollection
+	Dim dcR As NotesDocumentCollection
+	Dim docR As NotesDocument
+	Dim head(2) As String
+	
+	Set MST_GetNextLevelHeads = Nothing
+	If dbF Is Nothing Then Call MST_Initialize()
+	
+	Set dcR = MST_GetImmediateHeadSubordinate(doc.Universalid)
+	If dcR.Count < 1 Then GoTo fn
+	
+	Set dc = Nothing
+	head(0) = "TOP"
+	head(1) = "HEAD"
+	head(2) = "LINE"
+	Set docR = dcR.Getfirstdocument()
+	Do While Not docR Is Nothing
+		'If Not IsNull(ArrayGetIndex(head(), docR.Getitemvalue("StructurePositionHeaderType")(0))) Then
+		'	If InStr(docR.Getitemvalue("NotesAddress")(0), "CN=") > 0 Then
+				If dc Is Nothing Then Set dc = dbF.Getprofiledoccollection("@#$%^&")
+				If Not dc.Contains(docR) Then Call dc.Adddocument(docR)
+'				If dcResult Is Nothing Then Set dcResult = dbF.Getprofiledoccollection("@#$%^&")
+'				If Not dcResult.Contains(docR) Then Call dcResult.Adddocument(docR)
+		'	End If
+		'End If
+		
+		Set docR = dcR.Getnextdocument(docR)
+	Loop
+	
+	Set MST_GetNextLevelHeads = dc
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetNextLevelHeads: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetHeadsToLevel:1:8
+Public Function MST_GetHeadsToLevel(lvl As Integer) As NotesDocumentCollection
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	Dim errS As String
+	
+	Dim formula As String
+	Dim dc As NotesDocumentCollection
+	Dim doc As NotesDocument
+	Dim dcR As NotesDocumentCollection
+	Dim docR As NotesDocument
+	Dim dcResult As NotesDocumentCollection
+	
+	Set MST_GetHeadsToLevel = Nothing
+	If dbF Is Nothing Then Call MST_Initialize()
+	formula = {Form = "CP" & Status != "Уволен" & Status != "Декрет" & PublicAccessOff != "1" & @IsUnavailable($Conflict)}
+	formula = formula & { & NotesAddress = StructureHeaderAddress & NotesAddress != "" & StructurePositionHeaderType = "TOP"}
+	
+	Set dc = dbF.Search(formula, Nothing, 0)
+	If dc.Count < 1 Then GoTo fn
+	
+	Set dcResult = Nothing
+	Set doc = dc.Getfirstdocument()
+	Do While Not doc Is Nothing
+		Set dcR = MST_GetLevelHeads(doc, lvl, 0)
+		If Not dcR Is Nothing Then
+			If dcResult Is Nothing Then
+				Set dcResult = dcR
+			Else
+				Set docR = dcR.Getfirstdocument()
+				Do While Not docR Is Nothing
+					If Not dcResult.Contains(docR) Then Call dcResult.Adddocument(docR)
+					Set docR = dcR.Getnextdocument(docR)
+				Loop
+			End If
+		End If
+		
+		Set doc = dc.Getnextdocument(doc)
+	Loop
+	
+	Set MST_GetHeadsToLevel = dcResult
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetHeadsToLevel: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetAllSubordinate:1:8
+Public Function MST_GetAllSubordinate(key As String) As NotesDocumentCollection
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	Dim errS As String
+	
+	Dim dc As NotesDocumentCollection
+	Dim doc As NotesDocument
+	Dim dcR As NotesDocumentCollection
+	Dim docR As NotesDocument
+	Dim docTmp As NotesDocument
+	
+	Set dc = vwHeaders.Getalldocumentsbykey(key, True)
+	If dc.Count > 0 Then
+		Set doc = dc.Getfirstdocument()
+		Print doc.caller(0)
+		Do While Not doc Is Nothing
+			If key = doc.Universalid Then GoTo nextDoc
+			If key = doc.Getitemvalue("Caller")(0) Then GoTo nextDoc
+			If key = doc.Getitemvalue("NotesAddress")(0) Then GoTo nextDoc
+			Set dcR = Nothing
+			Set dcR = MST_GetAllSubordinate(doc.Universalid)
+			If dcR.Count > 0 Then
+				Set docR = dcR.Getfirstdocument()
+				Do While Not docR Is Nothing
+					 Set docTmp = Nothing
+					 Set docTmp = dc.Getdocument(docR)
+					 If docTmp Is Nothing Then Call dc.Adddocument(docR)
+					 
+					Set docR = dcR.Getnextdocument(docR)
+				Loop
+			End If
+			
+nextDoc:
+			Set doc = dc.Getnextdocument(doc)
+		Loop
+	End If
+	Set MST_GetAllSubordinate = dc
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetAllSubordinate: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetPersonDoc:1:8
+Public Function MST_GetPersonDoc(key As String) As NotesDocument
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	Dim errS As String
+	
+	Dim doc As NotesDocument
+	
+	Set doc = Nothing
+	Set doc = vwPersons.Getdocumentbykey(key, True)
+	Set MST_GetPersonDoc = doc
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetPersonDoc: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetLevelHeads:1:8
+Public Function MST_GetLevelHeads(doc As NotesDocument, lvl As Integer, lvlCurr As Integer) As NotesDocumentCollection
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	Dim errS As String
+	
+	Dim formula As String
+	Dim dc As NotesDocumentCollection
+	Dim dcCurr As NotesDocumentCollection
+	Dim docCurr As NotesDocument
+	Dim docR As NotesDocument
+	Dim dcR As NotesDocumentCollection
+	Dim n As Integer
+	
+	Set MST_GetLevelHeads = Nothing
+	If dbF Is Nothing Then Call MST_Initialize()
+	'Print doc.Getitemvalue("Caller")(0) & " " & Now()
+	If dc Is Nothing Then Set dc = dbF.Getprofiledoccollection("@#$%^&")
+	If Not dc.Contains(doc) Then Call dc.Adddocument(doc)
+	If lvlCurr < lvl Then
+		n = lvlCurr + 1
+		Set dcCurr = MST_GetNextLevelHeads(doc)
+		If Not dcCurr Is Nothing Then
+			Set docCurr = dcCurr.Getfirstdocument()
+			Do While Not docCurr Is Nothing
+				Set dcR = MST_GetLevelHeads(docCurr, lvl, n)
+				If Not dcR Is Nothing Then
+					If dcR.Count > 0 Then
+						Set docR = dcR.Getfirstdocument()
+						Do While Not docR Is Nothing
+							If Not dc.Contains(docR) Then Call dc.Adddocument(docR)
+							Set docR = dcR.Getnextdocument(docR)
+						Loop
+					End If
+				End If
+				
+				Set docCurr = dcCurr.Getnextdocument(docCurr)
+			Loop
+		End If
+	End If
+	
+	Set MST_GetLevelHeads = dc
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetLevelHeads: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_getCollegues:5:8
+' Library ManagementStructureTools -> Function MST_getCollegues
+' DocumentCollection
+' DCS-Olympiev Mar 22, 2019
+' *********************************************************************************
+Function MST_getCollegues (key As Variant) As DocumentCollection
+	On Error GoTo ErrH
+
+	Dim headD As NotesDocument
+	Set headD = MST_GetDepartmentHeadDoc(key)
+	Dim dc As New DocumentCollection
+	Dim view As NotesView
+	Set view = dbF.Getview("PersonsByFullPath")
+	Dim path As String
+	path = StrLeft(headD.Getitemvalue("StructureDepartmentPath")(0),{\})
+	If path = "" Then path = headD.Getitemvalue("StructureDepartmentPath")(0)
+	Print "fullPath = " & path
+	Dim dcCol As NotesDocumentCollection
+	Set dcCol = view.Getalldocumentsbykey(path, False)
+	Print dcCol.count
+	Call dc.addDocumentCollection(dcCol)
+'	Call dc.addDocumentCollection(MST_GetAllSubordinate(headD.getItemValue("NotesAddress")(0)))
+	Call dc.addDocument(headD)
+	
+	Set MST_getCollegues = dc
+	
+	GoTo EndH
+ErrH:
+	Error Err, libName & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetHeadMain:1:8
+Public Function MST_GetHeadMain(doc As NotesDocument) As Variant
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	
+	Dim clH As Variant
+	Dim clHA As Variant
+	Dim nm As NotesName
+	Dim nmCur As NotesName
+	Dim keyH As Variant
+	Dim keyHA As Variant
+	Dim docH As NotesDocument
+	Dim var As Variant
+	Dim unids As Variant
+	Dim index As Variant
+	Dim i As Integer
+	Dim x As Integer
+	Dim y As Integer
+	Dim heads List As Variant
+	
+	ReDim clH(0)
+	Set clH(0) = Nothing
+	If doc Is Nothing Then
+		MST_GetHeadMain = clH
+		GoTo fn
+	End If
+	
+	keyH = doc.Getitemvalue("StructureHeaderPersonUnid")(0)
+	Set docH = vwPersons.Getdocumentbykey(keyH, True)
+	If Not docH Is Nothing Then
+		If docH.Universalid <> doc.Universalid Then
+			Set clH(0) = docH
+		End If
+	End If
+	
+	MST_GetHeadMain = clH
+	
+	GoTo fn
+eh:
+	Dim errS As String
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetHeadMain: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+
+
+'++LotusScript Development Environment:2:1:MST_GetImmediateSubordinate:1:8
+Public Function MST_GetImmediateSubordinate(key As String) As NotesDocumentCollection
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	Dim errS As String
+	
+	Dim dc As NotesDocumentCollection
+	
+	Set dc = vwHeaders.Getalldocumentsbykey(key, True)
+	Set MST_GetImmediateSubordinate = dc
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetImmediateSubordinate: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:2:MST_Initialize:1:8
+Sub MST_Initialize
+	On Error GoTo eh
+	Dim errS As String
+	nLine = Chr(10) & Chr(13)
+	
+	Set dbF = DBT_GetDbBySearchKey("ФИРМЫ")
+	If dbF Is Nothing Then Error 9000, "Управленческая структура не найдена"
+	If Not dbF.Isopen Then Error 9001, "Управленческая структура недоступна"
+	Set vwOnlyHeaders = dbF.Getview("HeadsByAllHeaderPath")
+	Set vwHeaders = dbF.Getview("PersonsByAllHeaderPath")
+	Set vwPersons = dbF.Getview("PersonsByAllPath")
+	If initLib <> 1 Then initLib = 1
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Sub MST_Initialize: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Sub
+
+
+'++LotusScript Development Environment:2:1:MST_GetImmediateHeadSubordinate:1:8
+Public Function MST_GetImmediateHeadSubordinate(key As String) As NotesDocumentCollection
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	Dim errS As String
+	
+	Dim dc As NotesDocumentCollection
+	
+	Set dc = vwOnlyHeaders.Getalldocumentsbykey(key, True)
+	Set MST_GetImmediateHeadSubordinate = dc
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetImmediateHeadSubordinate: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetDepartmentHeadDoc:1:8
+Public Function MST_GetDepartmentHeadDoc(key As Variant) As NotesDocument
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	Dim errS As String
+	
+	Dim doc As NotesDocument
+	Dim docS As NotesDocument
+	
+	Set doc = Nothing
+	Set docS = MST_GetDepartmentDoc(key)
+	If Not docS Is Nothing Then
+		If Len(docS.Getitemvalue("HeaderPersonUnid")(0)) = 32 Then
+			Set doc = MST_GetPersonDoc(docS.Getitemvalue("HeaderPersonUnid")(0))
+			If Not doc Is Nothing Then
+				If doc.Getitemvalue("NotesAddress")(0) = doc.Parentdatabase.Parent.Username Then
+					Set doc = MST_GetPersonDoc(docS.Getitemvalue("StructureHeaderPersonUnid")(0))
+				End If
+			End If
+		End If
+	End If
+	Set MST_GetDepartmentHeadDoc = doc
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetDepartmentHeadDoc: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetHeads:1:8
+Public Function MST_GetHeads(doc As NotesDocument, hLvl As String, getAll As Boolean, other As Boolean) As Variant
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	
+	Dim clH As Variant
+	Dim nm As NotesName
+	Dim nmCur As NotesName
+	Dim keyH As Variant
+	Dim docH As NotesDocument
+	Dim var As Variant
+	Dim unids As Variant
+	Dim index As Variant
+	Dim i As Integer
+	Dim x As Integer
+	Dim y As Integer
+	Dim heads List As Variant
+	
+	ReDim clH(0)
+	Set clH(0) = Nothing
+	If doc Is Nothing Then
+		MST_GetHeads = clH
+		GoTo fn
+	End If
+	
+	keyH = doc.Getitemvalue("StructureHeaderPersonUnid")(0)
+	Set docH = vwPersons.Getdocumentbykey(keyH, True)
+	If Not docH Is Nothing Then
+		If docH.Universalid = doc.Universalid Then
+			MST_GetHeads = clH
+			GoTo fn
+		End If
+	End If
+	
+	x = 0
+	y = 0
+	ReDim unids(0)
+	Select Case hLvl
+		Case "":
+			Set clH(0) = docH
+			unids(0) = docH.Universalid
+			If getAll Then
+				var = MST_GetHeads(docH, "", True, False)
+				ForAll d In var
+					If d Is Nothing Then Exit ForAll
+					index = ArrayGetIndex(unids, d.Universalid)
+					If IsNull(index) Then
+						If unids(0) <> "" Then
+							x = UBound(clH) + 1
+							y = UBound(unids) + 1
+							ReDim Preserve clH(x)
+							ReDim Preserve unids(y)
+							Set clH(x) = d
+							unids(y) = d.Universalid
+						End If
+					End If
+				End ForAll
+			End If
+		Case docH.Getitemvalue("StructurePositionHeaderType")(0):
+			Set clH(0) = docH
+			unids(0) = docH.Universalid
+		Case Else:
+			var = MST_GetHeads(docH, hLvl, getAll, False)
+			If getAll Then
+				Set clH(0) = docH
+				unids(0) = docH.Universalid
+			End If
+			ForAll d In var
+				If d Is Nothing Then Exit ForAll
+				index = ArrayGetIndex(unids, d.Universalid)
+				If IsNull(index) Then
+					If unids(0) <> "" Then
+						x = UBound(clH) + 1
+						y = UBound(unids) + 1
+						ReDim Preserve clH(x)
+						ReDim Preserve unids(y)
+					End If
+					Set clH(x) = d
+					unids(y) = d.Universalid
+				End If
+			End ForAll
+	End Select
+	
+	If other Then
+		var = MST_GetHeadOther(doc)
+		ForAll d In var
+			If d Is Nothing Then Exit ForAll
+			index = ArrayGetIndex(unids, d.Universalid)
+			If IsNull(index) Then
+				If unids(0) <> "" Then
+					x = UBound(clH) + 1
+					y = UBound(unids) + 1
+					ReDim Preserve clH(x)
+					ReDim Preserve unids(y)
+				End If
+				Set clH(x) = d
+				unids(y) = d.Universalid
+			End If
+		End ForAll
+	End If
+	
+	MST_GetHeads = clH
+	
+	GoTo fn
+eh:
+	Dim errS As String
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetHeads: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetBySearch:1:8
+Function MST_GetBySearch(macros As String) As NotesDocumentCollection
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	Dim errS As String
+	
+	Dim dc As NotesDocumentCollection
+	
+	Set dc = dbF.Search(macros, Nothing, 0)
+	Set MST_GetBySearch = dc
+	
+	GoTo fn
+eh:
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_Initialize: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetHeadOther:1:8
+Public Function MST_GetHeadOther(doc As NotesDocument) As Variant
+	On Error GoTo eh
+	If initLib <> 1 Then Call MST_Initialize
+	
+	Dim clH As Variant
+	Dim nm As NotesName
+	Dim nmCur As NotesName
+	Dim keyH As Variant
+	Dim docH As NotesDocument
+	Dim i As Integer
+	Dim n As Integer
+	
+	ReDim clH(0)
+	Set clH(0) = Nothing
+	If doc Is Nothing Then
+		MST_GetHeadOther = clH
+		GoTo fn
+	End If
+	
+	Set nmCur = New NotesName(doc.Getitemvalue("NotesAddress")(0))
+	If doc.Getitemvalue("OtherHeader")(0) <> "" Then
+		keyH = doc.Getitemvalue("OtherHeader")
+		ForAll hd In keyH
+			Set nm = Nothing
+			Set nm = New NotesName(hd)
+			If nm.Abbreviated = nmCur.Abbreviated Then
+				hd = ""
+			Else
+				hd = nm.Abbreviated
+			End If
+		End ForAll
+		keyH = FullTrim(keyH)
+		keyH = ArrayUnique(keyH)
+	End If
+	
+	If Not IsArray(keyH) Then
+		MST_GetHeadOther = clH
+		GoTo fn
+	ElseIf keyH(0) = "" Then
+		MST_GetHeadOther = clH
+		GoTo fn
+	End If
+	
+	n = 0
+	ReDim unids(0)
+	For i = 0 To UBound(keyH)
+		Set docH = Nothing
+		Set docH = vwPersons.Getdocumentbykey(keyH(i), True)
+		If Not docH Is Nothing Then
+			If docH.Universalid = doc.Universalid Then GoTo nextDocH
+			n = UBound(clH)
+			If Not clH(n) Is Nothing Then
+				n = n + 1
+				ReDim Preserve clH(n)
+				ReDim Preserve unids(n)
+			End If
+			Set clH(n) = docH
+			unids(n) = docH.Universalid
+		End If
+nextDocH:
+	Next
+	
+	MST_GetHeadOther = clH
+	
+	GoTo fn
+eh:
+	Dim errS As String
+	errS = {Script Library } & libName & nLine
+	errS = errS & {Function MST_GetHeadOther: }
+	ErrS = ErrS & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+'++LotusScript Development Environment:2:1:MST_GetFirstHeadWithActualEMail:5:8
+' ManagementStructureTools -> Function MST_GetFirstHeadWithActualEMail
+' NotesDocument
+' dcs-olympiev Aug 6, 2018 
+' *********************************************************************************
+Function MST_GetFirstHeadWithActualEMail (doc As NotesDocument) As NotesDocument
+	Const FuncName = {MST_GetFirstHeadWithActualEMail}
+	On Error GoTo Errh
+
+	Dim fHead As Variant
+	Dim docFH As NotesDocument
+	Dim nLine As Variant
+	Dim docNAB As NotesDocument
+	Dim viewNAB As NotesView
+	Dim dbNAB As NotesDatabase
+	Dim s As New NotesSession
+	
+	Set dbNAB = New NotesDatabase(s.Currentdatabase.Server, "names.nsf")
+	Set viewNAB = dbNAB.Getview("($Users)")
+	
+	fHead = MST_GetHeadMain(doc)
+	Set docFH = fHead(0)
+	If Not docFH Is Nothing Then
+		If InStr(docFH.Getitemvalue("NotesAddress")(0), "/") = 0 Then
+			Set docFH = MST_GetFirstHeadWithActualEMail(docFH)
+		Else
+			'у некотрых пользователей левое нотес имя в БД кадры, их нет в NAB
+			Set docNAB = viewNAB.Getdocumentbykey(docFH.Getitemvalue("NotesAddress")(0))
+			If docNAB Is Nothing Then
+				Set docFH = MST_GetFirstHeadWithActualEMail(docFH)
+			ElseIf docNAB.Getitemvalue("MailFile")(0) = "" Then
+				Set docFH = MST_GetFirstHeadWithActualEMail(docFH)
+			End If
+		End If
+	End If
+
+	Set MST_GetFirstHeadWithActualEMail = docFH
+
+	GoTo EndH
+ErrH:
+	Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+	Resume EndH 
+EndH:
+End Function

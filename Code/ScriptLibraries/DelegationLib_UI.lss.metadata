@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?><note class="filter" maintenanceversion="1.0" replicaid="43258409002A14B3" version="10.0" xmlns="http://www.lotus.com/dxl">
+<noteinfo noteid="172" sequence="129" unid="D09CA790C9CF7937432583850048AB8C">
+<created><datetime>20190117T161345,08+03</datetime></created>
+<modified><datetime>20190529T103938,69+03</datetime></modified>
+<revised><datetime>20190411T145702,68+03</datetime></revised>
+<lastaccessed><datetime>20190529T103938,69+03</datetime></lastaccessed>
+<addedtofile><datetime>20190529T103938,69+03</datetime></addedtofile></noteinfo>
+<updatedby><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name></updatedby>
+<wassignedby><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name></wassignedby>
+<item name="$TITLE" sign="true"><text>DelegationLib_UI</text></item>
+<item name="$Flags"><text>s34Q</text></item>
+<item name="$PublicAccess" sign="true"><text>1</text></item>
+<item name="$DesignerVersion"><text>8.5.3</text></item>
+
+</note>

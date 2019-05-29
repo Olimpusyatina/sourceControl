@@ -1,0 +1,481 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+Option Public
+Option Declare
+Use "PhoneDirectory"
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Sub Initialize
+Declare Function PDUI_GetDepartment(multiselection As Boolean) As notesdocumentcollection
+Declare Function PDUI_GetPersonInfo(param As Variant) As Variant
+Declare Function PDUI_ChoosePersonsFromDialog(PersonsInfo List As Variant, Title As String, Comment As String, HideElements As Variant) As NotesDocument
+Declare Function PDUI_SelectCompany(multiselection As Boolean) As NotesDocumentCollection
+Declare Function PDUI_SelectPersonByFirm(multiselection As Boolean, sCategory As String) As NotesDocumentCollection
+Declare Function PDUI_GetPersonNames(param As variant) As Variant
+Declare Function PDUI_SelectPeople(multiselection As Boolean) As NotesDocumentCollection
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const libName = {("PhoneDirectory_UI")}
+Private Const PHONE_PEOPLEVIEW = {Persons\ByName}
+Private Const PHONE_CompanyVIEW = {(FirmHolding)}
+Private Const PHONE_DepartmentVIEW = {(DepartmentsForSelect)}
+Private Const PHONE_PEOPLEBYFIRMVIEW = {(PersonsByFirms)}
+
+Private nLine As String
+Private initLib As Integer
+
+
+'++LotusScript Development Environment:2:2:Initialize:1:10
+Sub Initialize
+	nLIne = Chr(10) & Chr(13)
+End Sub
+
+'++LotusScript Development Environment:2:1:PDUI_GetDepartment:1:8
+Function PDUI_GetDepartment(multiselection As Boolean) As notesdocumentcollection
+	On Error GoTo handler
+	Const FuncName = {Function "PDUI_SelectPeople"}
+	Dim ErrStr As String
+	
+	Dim workSpace As New NotesUIWorkspace
+	Dim selectDc As NotesDocumentCollection
+	Dim promptText As String
+	
+	Set PDUI_GetDepartment = Nothing
+	
+	promptText = {Выберите отдел}
+	
+	If multiselection Then
+		promptText = promptText & "ы"
+	End If
+	
+	Set selectDc = workSpace.Picklistcollection(3, multiselection, PhoneDb.Server, PhoneDb.filepath, PHONE_DepartmentVIEW, "Список отделов",promptText )
+	
+	Set PDUI_GetDepartment = selectDc 
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:PDUI_GetPersonInfo:1:8
+Function PDUI_GetPersonInfo(param As Variant) As Variant
+%REM
+	 Получает данные из карточки сотрудника
+	 Возвращет СПИСОК (list) со значениями
+	 Тэги списка:
+	 LOTUSNAME - лотусовое имя
+	 NAME_RUS - Фамилия И.О. (русский)
+	 FULLNAME_RUS - Фамилия Имя Отчество (русский)
+	 TITLE_RUS - Должность (русский)
+	 DEPARTMENT_RUS - Отдел/Департамент (русский)
+	 PATH_RUS - (Отдел\Должность) (русский)
+	 FULLPATH_RUS - Фирма\Деартамент\Отдел\...\Должность
+	 ADDRESS_RUS - адрес (страна, индекс, город, улица, дом, стр/корп)
+	 FIRM_RUS
+	 FIRM_RUS_S - с указанием формы собственности
+	 	 
+	 Смысл такой же, но на английском языке
+	 NAME_ENG
+	 FULLNAME_ENG
+	 TITLE_ENG
+	 DEPARTMENT_ENG
+	 PATH_ENG
+	 FULLPATH_ENG
+	 ADDRESS_ENG
+	 FIRM_ENG
+	 FIRM_ENG_S
+	 
+	 LEVEL - уровень руководителя
+	 
+	 Общие:
+	 PHONE - номер телефона, с добавочным 
+	 FAX - факс
+	 MOBILE - мобильный (+Х ХХХ ХХХ ХХХХ)
+	 EMAIL - no comments
+%end rem 
+	On Error GoTo handler
+	Const FuncName = {Function "PDUI_GetPersonInfo"}
+	Dim ErrStr As String
+	
+	Dim workSpace As New NotesUIWorkspace
+	Dim selectDc As NotesDocumentCollection
+	Dim persDoc As NotesDocument
+	Dim persStructDoc As NotesDocument
+	Dim deptStructDoc As NotesDocument
+	Dim FirmDoc As NotesDocument
+	Dim promptText As String
+	Dim result list As Variant
+	Dim macro As Variant
+	
+	PDUI_GetPersonInfo = ""
+	
+	Select Case TypeName(param)
+		Case "STRING":
+			
+			If param = "" Then
+				' Выбор из списка
+				promptText = {Выберите сотрудника}
+				
+				Set selectDc = workSpace.Picklistcollection(3, False, PhoneDb.Server, PhoneDb.filepath, PHONE_PEOPLEVIEW, "Список сотрудников",promptText )
+				
+				If selectDc.Count < 1 Then GoTo endh
+				
+				Set persDoc = selectDc.Getfirstdocument()
+				
+			ElseIf InStr(param,{CN=}) > 0 Then
+				' Поиск по LN
+				Set persDoc = PD_GetPersonDocByLN("" & param)
+				
+			ElseIf Len(param) = 32 Then
+				' Поиск по UNID
+				Set persDoc = PD_GetPersoneByUNID("" & param)
+				
+			Else
+				Error 5500, "Неверный параметр"
+			End If
+			
+		Case "NOTESDOCUMENT":
+			
+			Set persDoc = param
+			
+	End Select
+	
+	Set persStructDoc = PD_GetStructureDoc(persDoc)
+	Set deptStructDoc = PD_GetDepartmentDoc(persDoc)
+	
+	result("LOTUSNAME")=Implode(Evaluate({@name([CANONICALIZE];NotesAddress)},persDoc))
+	result("NAME_RUS")=persDoc.Getitemvalue("Caller")(0)
+	result("FULLNAME_RUS")=persDoc.Getitemvalue("CallerNickName")(0)
+	result("NAME_ENG")=persDoc.Getitemvalue("Caller")(0) ' надо придумать как делать короткое, как они пишут...
+	result("FULLNAME_ENG")=persDoc.Getitemvalue("CallerEn")(0)
+		
+	result("PHONE_ENG")=persDoc.getitemvalue("CallerPhone")(0) & { (ext. } & persDoc.getitemvalue("CallerPhone_add")(0) & {)}
+	result("PHONE_RUS")=persDoc.getitemvalue("CallerPhone")(0) & { (доб. } & persDoc.getitemvalue("CallerPhone_add")(0) & {)}
+	result("FAX")=persDoc.getitemvalue("CallerFax")(0)
+	result("MOBILE")=persDoc.getitemvalue("CallerPhone_Mob")(0)
+	result("EMAIL")=persDoc.getitemvalue("CallerEmail")(0)
+	
+	result("LEVEL")=persDoc.Getitemvalue("StructurePositionHeaderType")(0)
+	result("SHARED") = persDoc.Getitemvalue("Shared")(0)
+	
+	'Задаем значения чтобы список был всегда. 
+	'Потом не надо будет проверять наличие ключа.
+	result("TITLE_RUS")=""
+	result("DEPARTMENT_RUS")=""
+	result("PATH_RUS")=""
+	result("FULLPATH_RUS")=""
+		
+	result("TITLE_ENG")=""
+	result("DEPARTMENT_ENG")=""
+	result("PATH_ENG")=""
+	result("FULLPATH_ENG")=""
+	result("VISTEMPL")=""
+	
+	If Not persStructDoc Is Nothing Then
+		result("TITLE_RUS")=persStructDoc.Getitemvalue("Position")(0)
+		If InStr(persStructDoc.Getitemvalue("Path")(0),{\})>1 then
+			result("DEPARTMENT_RUS")=StrLeft(persStructDoc.Getitemvalue("Path")(0),{\})
+			result("DEPARTMENT_ENG")=StrLeft(persStructDoc.Getitemvalue("PathEn")(0),{\})
+		Else
+			result("DEPARTMENT_RUS")=persStructDoc.Getitemvalue("Path")(0)
+			result("DEPARTMENT_ENG")=persStructDoc.Getitemvalue("PathEn")(0)
+		End If
+		
+		result("PATH_RUS")=persStructDoc.Getitemvalue("Path")(0)
+		result("FULLPATH_RUS")=persStructDoc.Getitemvalue("FullPath")(0)
+		
+		result("TITLE_ENG")=persStructDoc.Getitemvalue("PositionEn")(0)
+		
+		result("PATH_ENG")=persStructDoc.Getitemvalue("PathEn")(0)
+		result("FULLPATH_ENG")=persStructDoc.Getitemvalue("FullPathEn")(0)
+		
+	End If
+	
+	If Not deptStructDoc Is Nothing Then
+		result("VISTEMPL")="" & deptStructDoc.Getitemvalue("VisitTemplNum")(0)
+	End If
+	
+	result("ADDRESS_RUS")=""
+	result("ADDRESS_ENG")=""
+	result("FIRM_RUS")=""
+	result("FIRM_ENG")=""
+	result("FIRM_RUS_S")=""
+	result("FIRM_ENG_S")=""
+	
+	Set FirmDoc = PD_GetFirmDoc(persDoc)
+	
+	If Not FirmDoc Is Nothing Then
+		result("ADDRESS_RUS")=FirmDoc.Getitemvalue("Country")(0) & ", " & FirmDoc.Getitemvalue("City")(0) & ", " &_
+		FirmDoc.Getitemvalue("Zip")(0) & ", " &  FirmDoc.Getitemvalue("Address")(0)
+		
+		result("ADDRESS_ENG")=FirmDoc.Getitemvalue("AddressEn")(0) & ", " & FirmDoc.Getitemvalue("CityEn")(0) & ", " &_
+		FirmDoc.Getitemvalue("ZipEn")(0) & ", " & FirmDoc.Getitemvalue("CountryEn")(0)  
+		
+		result("FIRM_RUS")=FirmDoc.Getitemvalue("Firm")(0)
+		result("FIRM_ENG")=FirmDoc.Getitemvalue("FirmEn")(0)
+		result("FIRM_RUS_S")=FirmDoc.Getitemvalue("Sobstv")(0) & { "} & FirmDoc.Getitemvalue("Firm")(0) & {"}
+		result("FIRM_ENG_S")=FirmDoc.Getitemvalue("FirmEn")(0) & { } & FirmDoc.Getitemvalue("SobstvEn")(0)
+	End If
+	
+	PDUI_GetPersonInfo = result
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:PDUI_ChoosePersonsFromDialog:1:8
+Function PDUI_ChoosePersonsFromDialog(PersonsInfo List As Variant, Title As String, Comment As String, HideElements As Variant) As NotesDocument
+	%REM
+		PersonsInfo must have 3 tags:
+		Persons
+		PersonsUnid
+		PersonsLN
+		
+		Values for HideElements:
+		buttonPlus
+		buttonMinus
+		buttonNothing
+		buttonUp
+		buttonDown
+		fldTitle
+		fldComment
+		fldPersonsOrder
+	%END REM
+	On Error GoTo handler
+	Const FuncName = {Function "PDUI_ChoosePersonsFromDialog"}
+	Dim ErrStr As String
+	Dim errTxt As String
+	
+	Dim ws As New NotesUIWorkspace
+	Dim ss As New NotesSession
+	Dim db As NotesDatabase
+	Dim form As NotesForm
+	Dim doc As NotesDocument
+	Dim fl As Boolean
+	Dim Persons As Variant
+	Dim PersonsUnid As Variant
+	Dim PersonsLN As Variant
+	Dim envName As String
+	Dim i As Integer
+	Dim n As Integer
+	
+	Set PDUI_ChoosePersonsFromDialog = Nothing
+	errTxt = ""
+	If Not IsElement(PersonsInfo("Persons")) Then
+		errTxt = {Array Persons not found}
+	ElseIf Not IsElement(PersonsInfo("PersonsUnid")) Then
+		errTxt = {Array PersonsUnid not found}
+	ElseIf Not IsElement(PersonsInfo("PersonsLN")) Then
+		errTxt = {Array PersonsLN not found}
+	Else
+		If Not IsArray(PersonsInfo("Persons")) Then
+			ReDim Persons(0)
+			Persons(0) = PersonsInfo("Persons")
+		Else
+			Persons = PersonsInfo("Persons")
+		End If 
+		If Not IsArray(PersonsInfo("PersonsUnid")) Then
+			ReDim PersonsUnid(0)
+			PersonsUnid(0) = PersonsInfo("PersonsUnid")
+		Else
+			PersonsUnid = PersonsInfo("PersonsUnid")
+		End If 
+		If Not IsArray(PersonsInfo("PersonsLN")) Then
+			ReDim PersonsLN(0)
+			PersonsLN(0) = PersonsInfo("PersonsLN")
+		Else
+			PersonsLN = PersonsInfo("PersonsLN")
+		End If 
+		n = UBound(Persons)
+		If UBound(PersonsUnid) <> n Or UBound(PersonsLN) <> n Then
+			errTxt = {Ubound Persons Info not equal}
+		End If
+	End If
+	If errTxt <> "" Then
+		MessageBox errTxt, 16, {Impossible!}
+		GoTo endh
+	End If
+	
+	Set db = ss.Currentdatabase
+	Set form = db.Getform("DlgPersonsChoose")
+	If form Is nothing Then Error 8300, {Не найдена диалоговая форма}
+	
+	Set doc = db.Createdocument()
+	Call doc.Replaceitemvalue("Persons", Persons)
+	Call doc.Replaceitemvalue("PersonsUnid", PersonsUnid)
+	Call doc.Replaceitemvalue("PersonsLN", PersonsLN)
+	Call doc.Replaceitemvalue("Title", Title)
+	Call doc.Replaceitemvalue("Comment", Comment)
+	Call doc.Replaceitemvalue("HideElements", HideElements)
+	
+	fl = ws.Dialogbox("DlgPersonsChoose", True, True, False, False, False, False, Title, doc, True)
+	If fl Then Set PDUI_ChoosePersonsFromDialog = doc
+	
+	GoTo endh
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:PDUI_SelectCompany:1:8
+Function PDUI_SelectCompany(multiselection As Boolean) As NotesDocumentCollection
+	On Error GoTo handler
+	Const FuncName = {Function "PDUI_SelectPeople"}
+	Dim ErrStr As String
+	
+	Dim workSpace As New NotesUIWorkspace
+	Dim selectDc As NotesDocumentCollection
+	Dim promptText As String
+		
+	Set PDUI_SelectCompany = Nothing
+	
+	promptText = {Выберите компани}
+	
+	If multiselection Then
+		promptText = promptText & "и"
+	Else
+		promptText = promptText & "ю"
+	End If
+	
+	Set selectDc = workSpace.Picklistcollection(3, multiselection, PhoneDb.Server, PhoneDb.filepath, PHONE_CompanyVIEW, "Список компаний",promptText )
+	
+	Set PDUI_SelectCompany = selectDc 
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:PDUI_SelectPersonByFirm:1:8
+Function PDUI_SelectPersonByFirm(multiselection As Boolean, sCategory As String) As NotesDocumentCollection
+	On Error GoTo handler
+	Const FuncName = {Function "PDUI_SelectPeople"}
+	Dim ErrStr As String
+	
+	Dim workSpace As New NotesUIWorkspace
+	Dim selectDc As NotesDocumentCollection
+	Dim promptText As String
+	
+	Set PDUI_SelectPersonByFirm = Nothing
+	
+	promptText = {Выберите сотрудник}
+	
+	If Not multiselection Then
+		promptText = promptText & "а"
+	Else
+		promptText = promptText & "ов"
+	End If
+	
+	Set selectDc = workSpace.Picklistcollection(3, multiselection, PhoneDb.Server, PhoneDb.filepath, PHONE_PEOPLEBYFIRMVIEW, "Список сотрудников",promptText,sCategory)
+	
+	Set PDUI_SelectPersonByFirm = selectDc 
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:PDUI_GetPersonNames:1:8
+Function PDUI_GetPersonNames(param As variant) As Variant
+	On Error GoTo handler
+	Const FuncName = {Function "PDUI_GetPersonNames"}
+	Dim ErrStr As String
+	
+	Dim workSpace As New NotesUIWorkspace
+	Dim selectDc As NotesDocumentCollection
+	Dim persDoc As NotesDocument
+	Dim promptText As String
+	Dim result(0 To 1) As Variant
+	Dim macro As variant
+	
+	PDUI_GetPersonNames = ""
+	
+	Select Case TypeName(param)
+		Case "STRING":
+			
+			If param = "" Then
+				' Выбор из списка
+				promptText = {Выберите сотрудника}
+				
+				Set selectDc = workSpace.Picklistcollection(3, False, PhoneDb.Server, PhoneDb.filepath, PHONE_PEOPLEVIEW, "Список сотрудников",promptText )
+				
+				If selectDc.Count < 1 Then GoTo endh
+				
+				Set persDoc = selectDc.Getfirstdocument()
+				
+			ElseIf InStr(param,{CN=}) > 0 Then
+				' Поиск по LN
+				Set persDoc = PD_GetPersonDocByLN("" & param)
+				
+			ElseIf Len(param) = 32 Then
+				' Поиск по UNID
+				Set persDoc = PD_GetPersoneByUNID("" & param)
+				
+			Else
+				Error 5500, "Неверный параметр"
+			End if
+			
+		Case "NOTESDOCUMENT":
+			
+			Set persDoc = param
+			
+	End Select
+		
+	macro = Evaluate({@Name([CANONICALIZE];"} & persDoc.getitemvalue("NotesAddress")(0) & {")})
+	result(0) = macro(0)
+	result(1) = persDoc.getitemvalue("caller")(0)
+		
+	PDUI_GetPersonNames = result
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:PDUI_SelectPeople:1:8
+Function PDUI_SelectPeople(multiselection As Boolean) As NotesDocumentCollection
+	On Error GoTo handler
+	Const FuncName = {Function "PDUI_SelectPeople"}
+	Dim ErrStr As String
+	
+	Dim workSpace As New NotesUIWorkspace
+	Dim selectDc As NotesDocumentCollection
+	Dim promptText As string
+		
+	Set PDUI_SelectPeople = Nothing
+	
+	promptText = {Выберите сотрудник}
+	
+	If Not multiselection Then
+		promptText = promptText & "а"
+	Else
+		promptText = promptText & "ов"
+	End If
+	
+	Set selectDc = workSpace.Picklistcollection(3, multiselection, PhoneDb.Server, PhoneDb.filepath, PHONE_PEOPLEVIEW, "Список сотрудников",promptText)
+
+	set PDUI_SelectPeople = selectDc 
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function

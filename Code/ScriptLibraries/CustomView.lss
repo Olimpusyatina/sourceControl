@@ -1,0 +1,555 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+%REM
+	Library CustomView
+	Created Mar 19, 2019 by Alexandr S. Olympiev/OTTO/RU
+	Description: Comments for Library
+%END REM
+Option Public
+Option Declare
+
+Use "DocumentCollection"
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Class CustomView
+Declare Sub Initialize
+Declare Sub Terminate
+Declare Private Function CV_getDB() As NotesDatabase
+Declare Function CV_pickListCustomView (TemplateView As NotesView, documentCollection As Variant, multi As Boolean, Title As String, Prompt As String) As DocumentCollection
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const DesignElem = {CustomView}
+Private nLine As String
+
+Public CV_CacheDB As NotesDatabase
+Private views() As CustomView
+%REM
+	Type a
+	Description: Comments for Type
+%END REM
+Type column
+	position As Long
+	title As String
+	formula As String
+End Type
+
+' Library CustomView -> Class CustomView
+' 
+' DCS-Olympiev Mar 19, 2019
+' *********************************************************************************
+Class CustomView
+	Private className As String
+	Private ViewName As String
+	Private ViewSelection As String
+	Private extDc As DocumentCollection
+	Private templateView As NotesView
+	Private title As String
+	Private Prompt As String
+	Private multi As Boolean
+	Private view As NotesView
+	Private columns() As column
+	
+	Sub New
+		On Error GoTo ErrH
+		className = {CustomView}
+		
+		Dim view As NotesView
+		Dim dc As NotesDocumentCollection
+		
+		Call setViewSelection({UNIDFORCUSTOMVIEW != ""})
+		
+		Set dc = CV_CacheDB.Search(getViewSelection(), Nothing , 0)
+		
+		Call dc.Removeall(True)
+		
+		Set view = CV_CacheDB.getView("tmplView")
+		While Not view Is Nothing
+			Call view.Remove()
+			Set view = CV_CacheDB.getView("tmplView")
+		Wend
+				
+		Set extDc = New DocumentCollection
+		ReDim columns(0) As column
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub	
+	' Library CustomView -> Function show
+	' Documentcollection
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function show As DocumentCollection
+		On Error GoTo ErrH
+
+	'	Dim tmplView As NotesView	
+		Dim tmplDc As NotesDocumentCollection
+		
+		If getTitle() = "" Then Call setTitle("Выберите документ(Choose document)")
+		If getViewName() = "" Then Call setViewName("tmplView" & Now)
+		If getPrompt() = "" Then Call setPrompt("Выбор(Choose)")
+		
+		Call setViewSelection(getViewSelection() & {& customViewName = "} & getViewName & {"})
+			
+		Dim newDoc As NotesDocument
+
+		Dim doc As NotesDocument
+		Set doc = extDc.getFirstDocument()
+		While Not doc Is Nothing
+			Set newDoc = doc.Copytodatabase(CV_CacheDB)
+			Call newDoc.Replaceitemvalue("UNIDFORCUSTOMVIEW", doc.Universalid)
+			Call newDoc.Replaceitemvalue("customViewName", getViewName)
+			Call newDoc.save(True,False)
+			Set doc = extDc.getNextDocument()
+		Wend
+		
+		Set view = CV_getDB.Createview(getViewName(), getViewSelection(), getTemplateView())
+		
+		ForAll column In me.columns
+			If column.formula <> "" Then
+				Call view.Createcolumn(column.position, column.title, column.formula)
+			End If
+		End ForAll
+		
+		Dim ws As New NotesUIWorkspace
+		Dim res As NotesDocumentCollection
+		Dim selectedDoc As NotesDocument
+		Dim resDc As New DocumentCollection
+		Print "end custom = " & Now	
+		Set res = ws.Picklistcollection(3, getMulti(), CV_getDB.Server, CV_getDB.Filepath, getViewName(), getTitle(), getPrompt())
+		
+		Set selectedDoc = res.Getfirstdocument()
+		While Not selectedDoc Is Nothing
+			Call resDc.addDocument(extDc.getDocumentByUNID(selectedDoc.Getitemvalue("UNIDFORCUSTOMVIEW")(0)))
+			Set selectedDoc = res.Getnextdocument(selectedDoc)
+		Wend
+		
+		If views(0) is Nothing Then
+			Set views(0) = Me
+		Else
+			Dim count As Integer
+			count = UBound(views) + 1
+			ReDim Preserve views(count) As CustomView
+			Set views(count) = Me
+		End If	
+		
+		Call removeMe
+	'	Set tmplDc = CV_getDB.Search({UNIDFORCUSTOMVIEW != ""}, Nothing, 0)
+	'	Call tmpldc.Removeall(True)
+	'	If Not view Is Nothing Then Call view.Remove()
+		
+		Set show = resDc
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function addToCollection
+	' Boolean
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function addToView (obj As Variant) As DocumentCollection
+		On Error GoTo ErrH
+
+		Select Case TypeName(obj)
+			Case "NOTESDOCUMENTCOLLECTION", "DOCUMENTCOLLECTION"
+				Call extDc.addDocumentCollection(obj)		
+			Case "NOTESDOCUMENT"
+				Call extDc.addDocument(obj)
+			Case "NOTESUIDOCUMENT"
+				If Not obj.Document Is Nothing Then Call extDc.addDocument(obj.Document)
+			Case "NOTESVIEWENTRY"
+				If Not obj.Document Is Nothing Then Call extDc.addDocument(obj.Document)
+			Case "NOTESVIEWENTRYCOLLECTION"
+				Dim ve As NotesViewEntry
+				Set ve = obj.getFirstEntry
+				While Not ve Is Nothing 
+					If Not ve.Document Is Nothing Then Call extDc.addDocument(ve.Document)
+					Set ve = obj.GetNextEntry(ve)
+				Wend
+				If Not obj.Document Is Nothing Then Call extDc.addDocument(obj.Document)
+			Case "NOTESVIEW"
+				Call addToView(obj.GetAllEntries)
+			Case Else
+				On Error 182 Resume Next
+				If Not obj.getDoc() Is Nothing Then Call extDc.addDocument(obj.getDoc())
+				On Error GoTo EndH
+		End Select
+
+		Set addToView = extDc
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function setViewName
+	' Variant
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function setViewName(viewName As String) As Boolean
+		On Error GoTo ErrH
+
+		Me.ViewName = viewName
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function getViewName
+	' String
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function getViewName As String
+		On Error GoTo ErrH
+
+		getViewName = Me.ViewName
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function setViewSelection
+	' Variant
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function setViewSelection (viewSelection As String)
+		On Error GoTo ErrH
+
+		Me.ViewSelection = Me.ViewSelection & viewSelection
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function getViewSelection
+	' String
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function getViewSelection As String
+		On Error GoTo ErrH
+
+		getViewSelection = ViewSelection
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function setTitle
+	' Variant
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function setTitle (Title As String)
+		On Error GoTo ErrH
+
+		Me.Title = Title
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function getTitle
+	' String
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function getTitle As String
+		On Error GoTo ErrH
+
+		getTitle = Title
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function setPrompt
+	' Variant
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function setPrompt (Prompt As String)
+		On Error GoTo ErrH
+
+		Me.Prompt = Prompt
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function getPrompt
+	' String
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function getPrompt As String
+		On Error GoTo ErrH
+
+		getPrompt = Prompt
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function setMulti
+	' Variant
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function setMulti (multi As Boolean)
+		On Error GoTo ErrH
+
+		Me.multi = multi
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function getmulti
+	' Boolean
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function getmulti As Boolean
+		On Error GoTo ErrH
+
+		getmulti = multi
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function setTemplateView
+	' Variant
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function setTemplateView (TemplateView As NotesView)
+		On Error GoTo ErrH
+
+		Set Me.TemplateView = TemplateView
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function getTemplateView
+	' NotesView
+	' DCS-Olympiev Mar 19, 2019
+	' *********************************************************************************
+	Function getTemplateView As NotesView
+		On Error GoTo ErrH
+
+		Set getTemplateView = TemplateView
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function composeView
+	' Variant
+	' DCS-Olympiev Mar 20, 2019
+	' *********************************************************************************
+'	Function composeView (columns() As NotesViewColumn) As Integer
+'	On Error GoTo ErrH
+'
+'		If Not Me.view Is Nothing Then Call me.view.Remove()
+'	
+'		Set Me.templateView = nothing
+	
+	'	If getViewName() = "" Then Call setViewName("CustomView" & Now)
+	
+	'	Set Me.view = CV_getDB().Createview(getViewName(), getViewSelection())
+		
+	'	ForAll column In columns
+	'		Call me.View.Copycolumn(column)
+	'	End ForAll
+	
+'		Me.columns = columns
+'		
+'	GoTo EndH
+'ErrH:
+'	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+'EndH:
+'	End Function
+	' Library CustomView -> Function addColumns
+	' Boolean
+	' DCS-Olympiev Mar 20, 2019
+	' *********************************************************************************
+'	Function addColumn (columns As Variant) As Boolean
+'	On Error GoTo ErrH
+'
+'	If IsArray(columns) Then
+'		If TypeName(columns(LBound(columns))) = "NOTESVIEWCOLUMN" Then
+'			Me.columns = ArrayAppend(Me.columns, columns)
+'		Else 
+'			Error 9001, "Передаваемый параметр должен быть NotesViewColumns [Array]"
+'		End If
+'	ElseIf TypeName(columns) = "NOTESVIEWCOLUMN" Then
+'		Me.columns = ArrayAppend(Me.columns, columns)
+'	Else
+'		Error 9001, "Передаваемый параметр должен быть NotesViewColumns [Array]"
+'	End If
+'
+'	GoTo EndH
+'ErrH:
+'	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+'EndH:
+'	End Function
+	' Library CustomView -> Function composeColumn
+	' NotesViewColumn
+	' DCS-Olympiev Mar 20, 2019
+	' *********************************************************************************
+	Function composeColumn (position As long, cName As String, cFormula As String) As NotesViewColumn
+	On Error GoTo ErrH
+		
+		Dim i As Integer
+		i = UBound(Me.columns) + 1
+		ReDim Preserve me.columns(i) As column
+		me.columns(i).formula = cFormula
+		me.columns(i).position = position
+		me.columns(i).title = cName
+'		Dim column As NotesViewColumn
+'		 
+'		If Me.view Is Nothing Then Set Me.view = CV_getDB().Createview(getViewName(), getViewSelection())
+'		Set column = me.view.Createcolumn(Position, cName, cFormula)
+'		Dim i As Integer
+'		i = UBound(Me.columns) + 1
+'		ReDim Preserve Me.columns(i)
+'		Set Me.columns(i) = column
+'		Set composeColumn = column
+'		Call me.view.Remove()
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function getViewDocuments
+	' Documentcollection
+	' DCS-Olympiev Mar 20, 2019
+	' *********************************************************************************
+	Function getViewDocuments As DocumentCollection
+	On Error GoTo ErrH
+
+	Set getViewDocuments = extdc
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function clearView
+	' Boolean
+	' DCS-Olympiev Mar 20, 2019
+	' *********************************************************************************
+	Function clearView As Boolean
+	On Error GoTo ErrH
+
+	Set extDc = New DocumentCollection
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library CustomView -> Function removeMe
+	' Boolean
+	' DCS-Olympiev Mar 22, 2019
+	' *********************************************************************************
+	Function removeMe As Boolean
+	On Error GoTo ErrH
+'
+			Dim tmplDc As NotesDocumentCollection
+			Set tmplDc = CV_getDB.Search({UNIDFORCUSTOMVIEW != ""}, Nothing, 0)
+			Call tmpldc.Removeall(True)
+			If Not view Is Nothing Then Call view.Remove()
+'
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+End Class
+'++LotusScript Development Environment:2:2:Initialize:2:10
+
+Sub Initialize
+	On Error GoTo ErrH
+	nLine = Chr(10) & Chr(13)
+	
+	Dim s As New NotesSession
+	Set CV_CacheDB = s.Getdatabase("", "customView.nsf")
+	If Not CV_CacheDB.Isopen Then Call CV_CacheDB.Create("", "customView.nsf", True)
+'	Set CV_CacheDB =  New NotesDatabase ("", "cache.ndk") 
+	ReDim views(0)
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Sub
+
+
+
+'++LotusScript Development Environment:2:2:Terminate:1:10
+Sub Terminate
+	
+End Sub
+
+
+'++LotusScript Development Environment:2:1:CV_getDB:5:8
+' Library CustomView -> Function CV_getDB
+' NotesDatabase
+' DCS-Olympiev Mar 19, 2019
+' *********************************************************************************
+Private Function CV_getDB() As NotesDatabase
+	On Error GoTo ErrH
+
+	
+	If Not CV_CacheDB.Isopen Then Call CV_CacheDB.Create("", "customView.nsf", True)
+
+	If CV_CacheDB Is Nothing Then Set CV_CacheDB =  New NotesDatabase ("", "customView.nsf")
+	If Not CV_CacheDB.Isopen Then Call CV_CacheDB.Create("", "customView.nsf", True)
+	Set CV_getDB = CV_CacheDB
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+
+
+'++LotusScript Development Environment:2:1:CV_pickListCustomView:5:8
+' Library CustomView -> Function pickListCustomView
+' Documentcollection
+' DCS-Olympiev Mar 20, 2019
+' *********************************************************************************
+Function CV_pickListCustomView (TemplateView As NotesView, documentCollection As Variant, multi As Boolean, Title As String, Prompt As String) As DocumentCollection
+	On Error GoTo ErrH
+
+	Dim cv As New CustomView
+	
+	Dim dc As DocumentCollection
+
+	Call cv.setMulti(Multi)
+	Call cv.setPrompt(Prompt)
+	Call cv.setTemplateView(Templateview)
+	Call cv.setTitle(Title)
+	Call cv.addToView(documentCollection)
+	
+	Set dc = cv.show
+	
+	Set CV_pickListCustomView = dc
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+

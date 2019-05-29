@@ -1,0 +1,3116 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+Option Public
+Option Declare
+Use "ArrayTools"
+Use "DataBaseTools"
+Use "TransactionLib"
+Use "StatusLib"
+Use "Log"
+Use "ExecuteLib"
+Use "ManagementStructureTools"
+
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Public Class AppRefObject As Interface
+Declare Public Class FuncRole As AppRefObject
+Declare Public Class FuncRoleAssignment As AppRefObject
+Declare Class ApprovalTemplate As AppRefObject
+Declare Public Class DocumentType As AppRefObject
+Declare Class Criteria As AppRefObject
+Declare Class DocCategory As AppRefObject
+Declare Class FRADelegate As AppRefObject
+Declare Sub Initialize
+Declare Function ARO_getApprovalTemplatesWithCount (extDoc As NotesDocument, count As Long) As Variant
+Declare Function ARO_getObject (arg As Variant) As Variant
+Declare Function ARO_getUserFRAs (userName As String) As ObjectCollection
+Declare Function ARO_createListDocument (objects As ObjectCollection, title As String) As NotesDocument
+Declare Function ARO_getDB() As NotesDatabase
+Declare Function ARO_getDocumentType (doc As notesdocument) As DocumentType
+Declare Function ARO_getApprovalTemplates (doc As NotesDocument) As Variant
+Declare Function ARO_getDocumentByUNID(unid As String) As NotesDocument
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const objName = {AppRefObjects}
+Private Const DesignElem = {SL "AppRefObjects"}
+
+Private Const VIEW_BYUNID = "(ByUNID)"
+Const APP_REFERENCE_SEARCHKEY = "APP_REFERENCE"
+Const VISA_TEMPLATE_VIEW = "(VisaTmplByTemplateUNID)"
+Const VISA_TEMPLATE_BY_FRA_UNID_VIEW = "(visasTmplByFRAUnid)"
+Const APP_TMPL_BY_CATEGORY_VIEW = "(appTmplByCategoryUNID)"
+Const APP_TMPL_BY_DOCTYPE_DEFAULT_VIEW = "(appTmplDefaultByDocTypeUNID)"
+Const APP_TMPL_BY_DOCTYPE_VIEW = "(appTmplByDocTypeUNID)"
+Const APP_TMPL_BY_DOCTYPE_VIEW_VERIFICATION = "(appTmplByDocTypeUNIDVerification)"
+Const TYPEDOC_BY_DB_FORM_VIEW = "(DocTypeByDbForm)"
+Const CRITERIA_KEY_VIEW = "(CriteriaSetting)"
+Const FRA_BY_FRUNID_COMPANYUNID_VIEW = "FRAUnidsByCompanyUnid"
+
+Private nLine As String
+
+Private dbAppRef As NotesDatabase
+Public Class AppRefObject As Interface
+	Private currDoc As NotesDocument
+	Private deleted As Boolean
+	Private newDocument As Boolean
+	
+	Function getDoc As Variant
+		Set getDoc = currDoc
+	End Function
+	
+	Property Get isDeleted As Boolean
+		If Me.getDoc.Getitemvalue("deleted")(0) = "1" Then
+			isDeleted = True
+		Else
+			isDeleted = False
+		End If
+	End Property
+	
+	Sub New(doc As NotesDocument)
+		On Error GoTo eh
+		Const funcName = {AppRefObject.Initialize}
+		
+		Set Me.currDoc = doc
+		If doc.Noteid = "0" Then newDocument = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Sub
+	
+	Function CompanyAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.CompanyAdd}
+		
+		Dim dc As NotesDocumentCollection
+		Dim CompanyUnid As Variant
+		Dim CompanyNameRu As Variant
+		Dim CompanyNameEn As Variant
+		Dim CompanyVendorUnid As Variant
+		Dim doc As NotesDocument
+		Dim n As Long
+		
+		CompanyAdd = False
+		If Not IsObject(obj) Then GoTo fn
+		If obj Is Nothing Then GoTo fn
+		If obj IsA "NotesDocument" Then
+			Set dc = obj.Parentdatabase.Getprofiledoccollection({!@#$%})
+			Call dc.Adddocument(obj)
+		ElseIf obj IsA "NotesDocumentCollection" Then
+			Set dc = obj
+		Else
+			GoTo fn
+		End If
+		
+		CompanyUnid = Me.currDoc.Getitemvalue("CompanyUnid")
+		CompanyNameRu = Me.currDoc.Getitemvalue("CompanyNameRu")
+		CompanyNameEn = Me.currDoc.Getitemvalue("CompanyNameEn")
+		CompanyVendorUnid = Me.currDoc.Getitemvalue("CompanyVendorUnid")
+		
+		Set doc = dc.Getfirstdocument()
+		Do While Not doc Is Nothing
+			If CompanyUnid(0) = "" Then
+				n = 0
+				ReDim CompanyUnid(n)
+				ReDim CompanyNameRu(n)
+				ReDim CompanyNameEn(n)
+				ReDim CompanyVendorUnid(n)
+			Else
+				If IsNull(ArrayGetIndex(CompanyUnid, doc.Getitemvalue("UNID")(0))) Then
+					n = UBound(CompanyUnid) + 1
+					ReDim Preserve CompanyUnid(n)
+					ReDim Preserve CompanyNameRu(n)
+					ReDim Preserve CompanyNameEn(n)
+					ReDim Preserve CompanyVendorUnid(n)
+				Else
+					n = ArrayGetIndex(CompanyUnid, doc.Getitemvalue("UNID")(0))
+				End If
+			End If
+			CompanyUnid(n) = doc.Getitemvalue("UNID")(0)
+			CompanyNameRu(n) = doc.Getitemvalue("Firm")(0)
+			CompanyNameEn(n) = doc.Getitemvalue("FirmEn")(0)
+			CompanyVendorUnid(n) = doc.Getitemvalue("VendorUNID")(0)
+			If CompanyVendorUnid(n) = "" Then CompanyVendorUnid(n) = "-"
+			
+			Set doc = dc.Getnextdocument(doc)
+		Loop
+		
+		Call Me.currDoc.Replaceitemvalue("CompanyUnid", CompanyUnid)
+		Call Me.currDoc.Replaceitemvalue("CompanyNameRu", CompanyNameRu)
+		Call Me.currDoc.Replaceitemvalue("CompanyNameEn", CompanyNameEn)
+		Call Me.currDoc.Replaceitemvalue("CompanyVendorUnid", CompanyVendorUnid)
+		
+		CompanyAdd = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function CompanyRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.CompanyRemove}
+		
+		CompanyRemove = False
+		Call Me.currDoc.Replaceitemvalue("CompanyUnid", "")
+		Call Me.currDoc.Replaceitemvalue("CompanyNameRu", "")
+		Call Me.currDoc.Replaceitemvalue("CompanyNameEn", "")
+		Call Me.currDoc.Replaceitemvalue("CompanyVendorUnid", "")
+		CompanyRemove = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function PersonAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.PersonAdd}
+		
+		Dim dc As NotesDocumentCollection
+		Dim PersonUnid As Variant
+		Dim PersonNameRu As Variant
+		Dim PersonNameEn As Variant
+		Dim PersonLN As Variant
+		Dim nm As NotesName
+		Dim doc As NotesDocument
+		Dim n As Long
+		
+		PersonAdd = False
+		If Not IsObject(obj) Then GoTo fn
+		If obj Is Nothing Then GoTo fn
+		If obj IsA "NotesDocument" Then
+			Set dc = obj.Parentdatabase.Getprofiledoccollection({!@#$%})
+			Call dc.Adddocument(obj)
+		ElseIf obj IsA "NotesDocumentCollection" Then
+			Set dc = obj
+		Else
+			GoTo fn
+		End If
+		
+		PersonUnid = Me.currDoc.Getitemvalue("PersonUnid")
+		PersonNameRu = Me.currDoc.Getitemvalue("PersonNameRu")
+		PersonNameEn = Me.currDoc.Getitemvalue("PersonNameEn")
+		PersonLN = Me.currDoc.Getitemvalue("PersonLN")
+		
+		Set doc = dc.Getfirstdocument()
+		Do While Not doc Is Nothing
+			If InStr(doc.Getitemvalue("NotesAddress")(0), {CN=}) = 0 Then GoTo nextDoc
+			If PersonUnid(0) = "" Then
+				n = 0
+				ReDim PersonUnid(n)
+				ReDim PersonNameRu(n)
+				ReDim PersonNameEn(n)
+				ReDim PersonLN(n)
+			Else
+				If IsNull(ArrayGetIndex(PersonUnid, doc.Universalid)) Then
+					n = UBound(PersonUnid) + 1
+					ReDim Preserve PersonUnid(n)
+					ReDim Preserve PersonNameRu(n)
+					ReDim Preserve PersonNameEn(n)
+					ReDim Preserve PersonLN(n)
+				Else
+					n = ArrayGetIndex(PersonUnid, doc.Universalid)
+				End If
+			End If
+			PersonUnid(n) = doc.Universalid
+			PersonNameRu(n) = doc.Getitemvalue("CallerNickname")(0)
+			Set nm = New NotesName(doc.Getitemvalue("NotesAddress")(0))
+			If doc.Getitemvalue("CallerEn")(0) = "" Then
+				PersonNameEn(n) = nm.Common
+			Else
+				PersonNameEn(n) = doc.Getitemvalue("CallerEn")(0)
+			End If
+			PersonLN(n) = nm.Canonical
+			
+nextDoc:
+			Set doc = dc.Getnextdocument(doc)
+		Loop
+		
+		Call Me.currDoc.Replaceitemvalue("PersonUnid", PersonUnid)
+		Call Me.currDoc.Replaceitemvalue("PersonNameRu", PersonNameRu)
+		Call Me.currDoc.Replaceitemvalue("PersonNameEn", PersonNameEn)
+		Me.currDoc.Replaceitemvalue("PersonLN", PersonLN).Isauthors = True
+		
+		PersonAdd = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function PersonRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.PersonRemove}
+		
+		PersonRemove = False
+		Call Me.currDoc.Replaceitemvalue("PersonUnid", "")
+		Call Me.currDoc.Replaceitemvalue("PersonNameRu", "")
+		Call Me.currDoc.Replaceitemvalue("PersonNameEn", "")
+		Call Me.currDoc.Replaceitemvalue("PersonLN", "")
+		PersonRemove = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function ToDelete As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.Initialize}
+		
+		Call Me.getDoc.Replaceitemvalue("deleted", "1")
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function CategoryAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.CategoryAdd}
+		
+		Dim dc As NotesDocumentCollection
+		Dim CategoryUnid As Variant
+		Dim CategoryNameRu As Variant
+		Dim CategoryNameEn As Variant
+		Dim doc As NotesDocument
+		Dim n As Long
+		
+		CategoryAdd = False
+		If Not IsObject(obj) Then GoTo fn
+		If obj Is Nothing Then GoTo fn
+		If obj IsA "NotesDocument" Then
+			Set dc = obj.Parentdatabase.Getprofiledoccollection({!@#$%})
+			Call dc.Adddocument(obj)
+		ElseIf obj IsA "NotesDocumentCollection" Then
+			Set dc = obj
+		Else
+			GoTo fn
+		End If
+		
+		CategoryUnid = Me.currDoc.Getitemvalue("CategoryUnid")
+		CategoryNameRu = Me.currDoc.Getitemvalue("CategoryNameRu")
+		CategoryNameEn = Me.currDoc.Getitemvalue("CategoryNameEn")
+		
+		Set doc = dc.Getfirstdocument()
+		Do While Not doc Is Nothing
+			If CategoryUnid(0) = "" Then
+				n = 0
+				ReDim CategoryUnid(n)
+				ReDim CategoryNameRu(n)
+				ReDim CategoryNameEn(n)
+			Else
+				If IsNull(ArrayGetIndex(CategoryUnid, doc.Universalid)) Then
+					n = UBound(CategoryUnid) + 1
+					ReDim Preserve CategoryUnid(n)
+					ReDim Preserve CategoryNameRu(n)
+					ReDim Preserve CategoryNameEn(n)
+				Else
+					n = ArrayGetIndex(CategoryUnid, doc.Universalid)
+				End If
+			End If
+			CategoryUnid(n) = doc.Getitemvalue("UNID")(0)
+			CategoryNameRu(n) = doc.Getitemvalue("NameRu")(0)
+			CategoryNameEn(n) = doc.Getitemvalue("NameEn")(0)
+			
+nextDoc:
+			Set doc = dc.Getnextdocument(doc)
+		Loop
+		
+		Call Me.currDoc.Replaceitemvalue("CategoryUnid", CategoryUnid)
+		Call Me.currDoc.Replaceitemvalue("CategoryNameRu", CategoryNameRu)
+		Call Me.currDoc.Replaceitemvalue("CategoryNameEn", CategoryNameEn)
+		
+		CategoryAdd = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function CategoryRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.CategoryRemove}
+		
+		CategoryRemove = False
+		Call Me.currDoc.Replaceitemvalue("CategoryUnid", "")
+		Call Me.currDoc.Replaceitemvalue("CategoryNameRu", "")
+		Call Me.currDoc.Replaceitemvalue("CategoryNameEn", "")
+		CategoryRemove = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function DatabaseAdd(doc As NotesDocument) As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.DatabaseAdd}
+		
+		Call Me.currDoc.Replaceitemvalue("DatabaseTitle", doc.GetItemValue("DbInfo")(2))
+		Call Me.currDoc.Replaceitemvalue("DatabaseSearchKey", doc.GetItemValue("SearchKey")(0))
+		Call Me.currDoc.Replaceitemvalue("DatabaseReplicaID", doc.GetItemValue("DbInfo")(3))
+		DatabaseAdd = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function DatabaseRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.DatabaseRemove}
+		
+		Call Me.currDoc.Replaceitemvalue("DatabaseTitle", "")
+		Call Me.currDoc.Replaceitemvalue("DatabaseSearchKey", "")
+		Call Me.currDoc.Replaceitemvalue("DatabaseReplicaID", "")
+		Call Me.currDoc.Replaceitemvalue("DatabaseForm", "")
+		DatabaseRemove = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function DatabaseFormAdd(formName As String) As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.DatabaseFormAdd}
+		
+		Call Me.currDoc.Replaceitemvalue("DatabaseForm", formName)
+		DatabaseFormAdd = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function DatabaseFormRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.DatabaseFormRemove}
+		
+		Call Me.currDoc.Replaceitemvalue("DatabaseForm", "")
+		DatabaseFormRemove = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	' Library AppRefObjects -> Function isNew
+	' Boolean
+	' DCS-Olympiev Oct 19, 2018
+	' *********************************************************************************
+	Function isNew As Boolean
+		Const FuncName = {isNew}
+		On Error GoTo ErrH
+
+		isNew = newDocument
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	
+	Function getKey() As String
+		On Error GoTo eh
+		Const funcName = {AppRefObject.getKey}
+		
+		getKey = Me.getDoc().UniversalID
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	' Library AppRefObjects -> Function UNID
+	' String
+	' DCS-Olympiev Oct 30, 2018
+	' *********************************************************************************
+	Function UNID As String
+		Const FuncName = {UNID}
+		On Error GoTo ErrH
+
+		UNID = getDoc.getitemValue("UNID")(0)
+		If UNID = "" Then UNID = getDoc.UniversalID
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	
+	Function postSave() As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.postSave}
+		
+		If LOG_addHistory(Me.currDoc) Then postSave = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function typeDocAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.typeDocAdd}
+		
+		Dim dc As NotesDocumentCollection
+		Dim typeDocUnid As Variant
+		Dim typeDocRu As Variant
+		Dim typeDocEn As Variant
+		Dim doc As NotesDocument
+		Dim n As Long
+		
+		typeDocAdd = False
+		If Not IsObject(obj) Then GoTo fn
+		If obj Is Nothing Then GoTo fn
+		If obj IsA "NotesDocument" Then
+			Set dc = obj.Parentdatabase.Getprofiledoccollection({!@#$%})
+			Call dc.Adddocument(obj)
+		ElseIf obj IsA "NotesDocumentCollection" Then
+			Set dc = obj
+		Else
+			GoTo fn
+		End If
+		
+		typeDocUnid = Me.currDoc.Getitemvalue("typeDocUnid")
+		typeDocRu = Me.currDoc.Getitemvalue("typeDocRu")
+		typeDocEn = Me.currDoc.Getitemvalue("typeDocEn")
+		
+		Set doc = dc.Getfirstdocument()
+		Do While Not doc Is Nothing
+			If typeDocUnid(0) = "" Then
+				n = 0
+				ReDim typeDocUnid(n)
+				ReDim typeDocRu(n)
+				ReDim typeDocEn(n)
+			Else
+				If IsNull(ArrayGetIndex(typeDocUnid, doc.Universalid)) Then
+					n = UBound(typeDocUnid) + 1
+					ReDim Preserve typeDocUnid(n)
+					ReDim Preserve typeDocRu(n)
+					ReDim Preserve typeDocEn(n)
+				Else
+					n = ArrayGetIndex(typeDocUnid, doc.Universalid)
+				End If
+			End If
+			typeDocUnid(n) = doc.Getitemvalue("UNID")(0)
+			typeDocRu(n) = doc.Getitemvalue("NameRu")(0)
+			typeDocEn(n) = doc.Getitemvalue("NameEn")(0)
+			
+nextDoc:
+			Set doc = dc.Getnextdocument(doc)
+		Loop
+		
+		Call Me.currDoc.Replaceitemvalue("typeDocUnid", typeDocUnid)
+		Call Me.currDoc.Replaceitemvalue("typeDocRu", typeDocRu)
+		Call Me.currDoc.Replaceitemvalue("typeDocEn", typeDocEn)
+		
+		typeDocAdd = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function typeDocRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {AppRefObject.typeDocRemove}
+		
+		typeDocRemove = False
+		Call Me.currDoc.Replaceitemvalue("typeDocUnid", "")
+		Call Me.currDoc.Replaceitemvalue("typeDocRu", "")
+		Call Me.currDoc.Replaceitemvalue("typeDocEn", "")
+		typeDocRemove = True
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+End Class
+Public Class FuncRole As AppRefObject
+	
+	Sub New(doc As NotesDocument)
+		On Error GoTo eh
+		Const funcName = {funcRole.Initialize}
+		
+		Set Me.currDoc = doc
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Sub
+	
+	Function GetFRA As ObjectCollection
+		On Error GoTo eh
+		Const funcName = {funcRole.GetFRA}
+		
+		Dim vwFRAKeys As NotesView
+		Dim FRAs As New ObjectCollection
+		Dim FRA As FuncRoleAssignment
+		Dim dc As NotesDocumentCollection
+		Dim doc As NotesDocument
+		
+		'	If dbAppRef Is Nothing Then Set dbAppRef = Me.getDoc.Parentdatabase
+		Set vwFRAKeys = ARO_getDB().Getview("(FRAByFuncUNID)")' Olimpus убрал получение базы не из функции
+		
+		Set dc = vwFRAKeys.Getalldocumentsbykey( Me.getDoc.Getitemvalue("UNID")(0))
+		Set doc = dc.Getfirstdocument()
+		While Not doc Is Nothing
+			Set FRA = New FuncRoleAssignment(doc)
+			Call FRAs.addObject(FRA)
+			Set doc = dc.Getnextdocument(doc)
+		Wend
+		
+		Set GetFRA = FRAs
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function CompanyAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {funcRole.CompanyAdd}
+		
+		Me.CompanyAdd = AppRefObject..CompanyAdd(obj)
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function CompanyRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {funcRole.CompanyRemove}
+		
+		Me.CompanyRemove = AppRefObject..CompanyRemove
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function Save As Boolean
+		On Error GoTo eh
+		Const funcName = {funcRole.Save}
+		
+		Call getDoc.Save(True, False)
+		
+		newDocument = False
+		save = true
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	' Library AppRefObjects -> Function createFRA
+	' Boolean
+	' DCS-Olympiev Oct 25, 2018
+	' *********************************************************************************
+	Function createFRAs (companyDoc As NotesDocument, personDc As NotesDocumentCollection) As Boolean
+		Const FuncName = {createFRA}
+		On Error GoTo ErrH
+
+		Dim newFRADoc As NotesDocument
+		Dim newFRA As FuncRoleAssignment
+		Dim personDoc As NotesDocument
+		
+		If Me.isCalculated() Then
+			Set newFRADoc = ARO_getDB().Createdocument()
+			Call newFRADoc.Replaceitemvalue("form", "FuncRoleAssignment")
+			Call newFRADoc.Replaceitemvalue("unid", newFRADoc.Universalid)
+			Call newFRADoc.Replaceitemvalue("FuncRoleUNID", getDoc().getItemValue("UNID")(0))
+			Call newFRADoc.Replaceitemvalue("FuncRoleNameEn", getDoc().getItemValue("NameEn")(0))
+			Call newFRADoc.Replaceitemvalue("FuncRoleNameRu", getDoc().getItemValue("NameRu")(0))
+			Set newFRA = New FuncRoleAssignment(newFRADoc)
+			Call newFRA.Calculated()
+			Call newFRA.save()
+			GoTo endH
+		End If
+		
+		Set personDoc = personDc.Getfirstdocument()
+		While Not personDoc Is Nothing
+			Set newFRADoc = ARO_getDB().Createdocument()
+			Call newFRADoc.Replaceitemvalue("form", "FuncRoleAssignment")
+			Call newFRADoc.Replaceitemvalue("unid", newFRADoc.Universalid)
+			Call newFRADoc.Replaceitemvalue("FuncRoleUNID", getDoc().getItemValue("UNID")(0))
+			Call newFRADoc.Replaceitemvalue("FuncRoleNameEn", getDoc().getItemValue("NameEn")(0))
+			Call newFRADoc.Replaceitemvalue("FuncRoleNameRu", getDoc().getItemValue("NameRu")(0))
+			Set newFRA = New FuncRoleAssignment(newFRADoc)
+			If Not isForAllCompanies Then
+				Call newFRA.CompanyAdd(companyDoc)
+			Else
+				Call newFRA.ForAllCompanies()
+			End If
+			Call newFRA.PersonAdd(personDoc)
+			Call newFRA.save()
+			
+			Set personDoc = personDc.Getnextdocument(personDoc)	
+		Wend
+		createFRAs = True
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function isForAllCompanies
+	' Boolean
+	' DCS-Olympiev Oct 25, 2018
+	' *********************************************************************************
+	Function isForAllCompanies As Boolean
+		Const FuncName = {isForAllCompanies}
+		On Error GoTo ErrH
+
+		If getDoc.getitemValue("CompanyAll")(0) = "1" Then isForAllCompanies = true
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function isCalculated
+	' Boolean
+	' DCS-Olympiev Oct 29, 2018
+	' *********************************************************************************
+	Function isCalculated As Boolean
+		Const FuncName = {isCalculated}
+		On Error GoTo ErrH
+
+		If currDoc.Getitemvalue("isCalculated")(0) = "1" Then isCalculated = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function deleteAllFRA
+	' Boolean
+	' DCS-Olympiev Oct 29, 2018
+	' *********************************************************************************
+	Function deleteAllFRA As Boolean
+		Const FuncName = {deleteAllFRA}
+		On Error GoTo ErrH
+
+		Dim FRAs As ObjectCollection
+		Dim FRA As FuncRoleAssignment
+		Set FRAs = getFRA
+		
+		Set FRA = FRAs.getFirstObject
+		While Not FRA Is Nothing
+			Call FRA.todelete
+			Call FRA.save
+			Set FRA = FRAs.getNextObject()
+		Wend
+	
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function moveToApproaval
+	' Boolean
+	' DCS-Olympiev Oct 29, 2018
+	' *********************************************************************************
+	Function moveToApproval() As Boolean
+		Const FuncName = {moveToApproaval}
+		On Error GoTo ErrH
+		
+		If isCalculated() Then 
+			Dim memo As NotesDocument
+			Set memo = aro_getdb.Createdocument()
+			Call memo.Replaceitemvalue("form", "memo")
+			Call memo.Replaceitemvalue("subject", "Создана новая вычисляемая функциональная роль")
+			Dim rti As New NotesRichTextItem(memo, "body")
+			Call rti.Appenddoclink(getDoc, "Функциональная роль")
+			GoTo Endh
+		End If
+		
+		Dim FRAs As ObjectCollection
+		Dim FRA As FuncRoleAssignment
+		Set FRAs = getFRA()
+
+		Set FRA = FRAs.getFirstObject
+		While Not FRA Is Nothing
+			If fra.getDoc.getItemValue("StatusNumber")(0) = "000" Then
+				Call fra.moveToStatus("100")
+			End If
+			Set FRA = FRAs.getNextObject
+		Wend
+
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getApprovalTemplates
+	' Objectcollection
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getApprovalTemplates As ObjectCollection
+	Const FuncName = {getApprovalTemplates}
+	On Error GoTo ErrH
+
+	Dim FRAs As ObjectCollection
+	Dim templates As New ObjectCollection
+	Dim FRA As FuncRoleAssignment
+		
+	Set FRAs = getFRA
+	Set FRA = FRAs.getFirstObject()
+	While Not FRA Is Nothing
+		Call templates.addObjectCollection(FRA.getApprovalTemplates)
+		Set FRA = FRAs.getNextObject()
+	Wend
+	
+	Set getApprovalTemplates = templates	
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getName
+	' String
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getName() As String
+	Const FuncName = {getName}
+	On Error GoTo ErrH
+
+		getName =  getDoc.getitemValue("NameRu")(0) & " (" & getDoc.getitemValue("NameEn")(0) & ")"
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function toDelete
+	' Boolean
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function toDelete As Boolean
+	Const FuncName = {toDelete}
+	On Error GoTo ErrH
+
+	Call deleteAllFRA
+	Call AppRefObject..ToDelete()
+	Call save()
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getRusName
+	' String
+	' DCS-Olympiev Nov 19, 2018
+	' *********************************************************************************
+	Function getRusName As String
+		Const FuncName = {getRusName}
+		On Error GoTo ErrH
+
+		getRusName = getDoc.getitemValue("NameRu")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getEngName
+	' String
+	' DCS-Olympiev Nov 19, 2018
+	' *********************************************************************************
+	Function getEngName As String
+		Const FuncName = {getEngName}
+		On Error GoTo ErrH
+
+		getEngName = getDoc.getitemValue("NameEn")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+End Class
+Public Class FuncRoleAssignment As AppRefObject
+	Private status As Status
+	
+	Sub New(doc As NotesDocument)
+		On Error GoTo eh
+		Const funcName = {FuncRoleAssignment.Initialize}
+		
+		Set Me.currDoc = doc
+		Set status = New Status(doc, "StatusNumber")
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Sub
+	
+	Function PersonAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {FuncRoleAssignment.PersonAdd}
+		
+		Me.PersonAdd = AppRefObject..PersonAdd(obj)
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function PersonRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {FuncRoleAssignment.PersonRemove}
+		
+		Me.PersonRemove = AppRefObject..PersonRemove
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function Save As Boolean
+		On Error GoTo eh
+		Const funcName = {FuncRoleAssignment.Save}
+		
+		Call getDoc.save(True, False)
+		'Call arCl.Add(Me)
+		'Call arCl.Save()
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	Function CompanyAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {funcRoleAss.CompanyAdd}
+		
+		Me.CompanyAdd = AppRefObject..CompanyAdd(obj)
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	' Library AppRefObjects -> Function forAllCompanies
+	' Boolean
+	' DCS-Olympiev Oct 29, 2018
+	' *********************************************************************************
+	Function forAllCompanies () As Boolean
+		Const FuncName = {forAllCompanies}
+		On Error GoTo ErrH
+
+		Call Me.currDoc.Replaceitemvalue("CompanyUnid", "-")
+		Call Me.currDoc.Replaceitemvalue("CompanyNameRu", "Общая")
+		Call Me.currDoc.Replaceitemvalue("CompanyNameEn", "General")
+		Call Me.currDoc.Replaceitemvalue("CompanyVendorUnid", "-")
+		
+		forAllCompanies = True
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	
+	' Library AppRefObjects -> Function Calculated
+	' Boolean
+	' DCS-Olympiev Oct 29, 2018
+	' *********************************************************************************
+	Function Calculated As Boolean
+		Const FuncName = {Calculated}
+		On Error GoTo ErrH
+
+		Call Me.currDoc.Replaceitemvalue("CompanyUnid", "-")
+		Call Me.currDoc.Replaceitemvalue("CompanyNameRu", "Вычисляемая")
+		Call Me.currDoc.Replaceitemvalue("CompanyNameEn", "Calculated")
+		Call Me.currDoc.Replaceitemvalue("CompanyVendorUnid", "-")
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function moveToStatus
+	' Variant
+	' DCS-Olympiev Oct 29, 2018
+	' *********************************************************************************
+	Function moveToStatus(StatusNumber As String) As Boolean
+		Const FuncName = {moveToStatus}
+		On Error GoTo ErrH
+
+		moveToStatus = status.MoveToStatus(StatusNumber)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getTemplates
+	' Objectcollection
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getApprovalTemplates As ObjectCollection
+	Const FuncName = {getApprovalTemplates}
+	On Error GoTo ErrH
+
+	Dim view As NotesView
+	Dim dc As NotesDocumentCollection
+	Dim doc As NotesDocument
+	Dim appTmpl As ApprovalTemplate
+	Dim objects As New ObjectCollection
+	Dim appTmplDoc As NotesDocument
+	
+	Set view = ARO_getDb.Getview(VISA_TEMPLATE_BY_FRA_UNID_VIEW)
+	Set dc = view.Getalldocumentsbykey(UNID)
+	Set doc = dc.Getfirstdocument()
+	While Not doc Is Nothing
+		Set appTmplDoc = ARO_getDocumentByUNID(doc.Getitemvalue("appTmplUNID")(0))
+		If appTmplDoc Is Nothing Then GoTo nextTmpl
+		Set appTmpl = ARO_getObject(appTmplDoc)
+'		If CInt(appTmpl.getDoc.GetItemValue("StatusNumber")(0)) > 50 Then Call objects.addObject(appTmpl)
+		Call objects.addObject(appTmpl)
+nextTmpl:
+		Set doc = dc.Getnextdocument(doc)
+	Wend
+	
+		Set getApprovalTemplates = objects
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getName
+	' String
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getName() As String
+	Const FuncName = {getName}
+	On Error GoTo ErrH
+
+		getName = getDoc.getitemvalue("FuncRoleNameRu")(0) & " " &  getDoc.getitemvalue("CompanyNameRu")(0)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function hasAnalog
+	' Boolean
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function hasAnalog As Boolean
+	Const FuncName = {hasAnalog}
+	On Error GoTo ErrH
+
+	Dim view As NotesView
+	Dim key As String
+	Dim DC As NotesDocumentCollection
+	Dim doc As NotesDocument
+	Dim FRA As FuncRoleAssignment
+	
+	Set view = ARO_GetDb.Getview(FRA_BY_FRUNID_COMPANYUNID_VIEW)
+	key = getDoc.getItemValue("FuncRoleUnid")(0) & "~" & getDoc.getItemValue("companyUnid")(0)
+	Set dc = view.Getalldocumentsbykey(key)
+	If dc.count = 1 Then GoTo Endh
+	
+	Set doc = dc.Getfirstdocument()
+	While Not doc Is Nothing
+		Set FRA = ARO_GetObject(doc)
+		If FRA.getKey() <> getKEY() then
+		If FRA.getcurrentStatus = "200" Then 
+			hasAnalog = True
+			GoTo endH
+		End If
+		End If
+		Set doc = dc.Getnextdocument(doc)
+	Wend
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getAnalog
+	' FuncRoleAssignment
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getAnalogs As ObjectCollection
+	Const FuncName = {getAnalogs}
+	On Error GoTo ErrH
+
+		Dim view As NotesView
+		Dim key As String
+		Dim DC As NotesDocumentCollection
+		Dim doc As NotesDocument
+		Dim FRA As FuncRoleAssignment
+		Dim objects As New ObjectCollection
+		
+		Set view = ARO_GetDb.Getview(FRA_BY_FRUNID_COMPANYUNID_VIEW)
+		key = getDoc.getItemValue("FuncRoleUnid")(0) & "~" & getDoc.getItemValue("companyUnid")(0)
+		Set dc = view.Getalldocumentsbykey(key)
+		Set doc = dc.Getfirstdocument()
+		While Not doc Is Nothing
+			Set FRA = ARO_getObject(doc)
+			If getKey() <> FRA.getKey() Then
+				If FRA.getcurrentStatus = "200" Then Call objects.addObject(FRA)				
+			End If
+			Set doc = dc.Getnextdocument(doc)
+		Wend
+		
+		Set getAnalogs = objects
+		
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function delegateApprovaltemplate
+	' Boolean
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function delegateApprovalTemplates (FRA As FuncRoleAssignment) As Boolean
+	Const FuncName = {delegateApprovalTemplates}
+	On Error GoTo ErrH
+
+	Dim view As NotesView
+	Dim dc As NotesDocumentCollection
+	Dim doc As NotesDocument
+	
+	Set view = ARO_getDb.Getview(VISA_TEMPLATE_BY_FRA_UNID_VIEW)
+	Set dc = view.Getalldocumentsbykey(UNID)
+	Set doc = dc.Getfirstdocument()
+	While Not doc Is Nothing
+		Call doc.Replaceitemvalue("FuncRoleUnid", FRA.UNID())
+		Call doc.Save(True, False)
+		Set doc = dc.Getnextdocument(doc)
+	Wend
+		delegateApprovalTemplates = True
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getCurrentStatus
+	' String
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getCurrentStatus As String
+	Const FuncName = {getCurrentStatus}
+	On Error GoTo ErrH
+
+	getCurrentStatus = status.GetCurrentStatusNumber()
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function personGet
+	' NotesDocument
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function PersonGet (doc As notesdocument) As NotesDocument
+	Const FuncName = {PersonGet}
+	On Error GoTo ErrH
+
+	If isCalculated() Then
+		Set PersonGet = getCalculatedPerson(doc)
+	Else
+		Set PersonGet = MST_GetPersonDoc(getDoc.getItemValue("PersonLN")(0))
+	End If
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getFuncRole
+	' FuncRole
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function getFuncRole As FuncRole
+	Const FuncName = {getFuncRole}
+	On Error GoTo ErrH
+
+	Set getFuncRole = ARO_getObject(ARO_getDocumentByUNID(getDoc.getItemValue("FuncRoleUnid")(0)))
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function isCalculated
+	' Boolean
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function isCalculated As Boolean
+	Const FuncName = {isCalculated}
+	On Error GoTo ErrH
+
+		If getDoc.getItemValue("CompanyNameEn")(0) = "Calculated" Then isCalculated = True
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getCalculatedPerson
+	' NotesDocument
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function getCalculatedPerson (doc As notesdocument) As NotesDocument
+	Const FuncName = {getCalculatedPerson}
+	On Error GoTo ErrH
+
+	Set executeParameter = doc
+	Call ExecScript(getDoc.getItemValue("script")(0), doc)
+	Set getCalculatedPerson = executeReturnValue
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function checkPerson
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function checkPerson (userName As String) As Boolean
+	On Error GoTo ErrH
+
+		executeArgument = userName
+		Call ExecScript(getDoc.getItemValue("scriptToCheck")(0), Nothing)
+		checkPerson = executeReturnValue
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$ & unid
+EndH:
+	End Function
+	' Library AppRefObjects -> Function isForAllCompany
+	' Boolean
+	' DCS-Olympiev Dec 5, 2018
+	' *********************************************************************************
+	Function isForAllCompany As Boolean
+		Const FuncName = {isForAllCompany}
+		On Error GoTo ErrH
+
+		If getDoc.getItemValue("CompanyNameEn")(0) = "General" Then isForAllCompany = True
+		If isCalculated() Then isForAllCompany = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getFRAForCompany
+	' Objectcollection
+	' DCS-Olympiev Dec 5, 2018
+	' *********************************************************************************
+	Function getFRAForCompany (companies As Variant) As ObjectCollection
+		Const FuncName = {getFRAForCompany}
+		On Error GoTo ErrH
+
+		Dim FRAs As New ObjectCollection
+		Dim FRA As FuncRoleAssignment
+		Dim doc As NotesDocument
+		Dim dc As NotesDocumentCollection
+		Dim view As NotesView
+		Dim key As String
+
+		Set view = ARO_getDB().GetView(FRA_BY_FRUNID_COMPANYUNID_VIEW)	
+		key = getDoc.getItemValue("FuncRoleUnid")(0) & "~"
+		companies = ArrayInit(companies)
+		
+		ForAll company In companies
+			key = key & company
+			Set dc = view.getAllDocumentsByKey(key)
+			Set doc = dc.getFirstDocument
+			While Not doc Is Nothing
+				Set FRA = New FuncRoleAssignment(doc)
+				Call FRAs.addObject(FRA)			
+				Set doc = dc.getNextDocument(doc)
+			Wend
+		End ForAll
+		
+		Set getFRAForCompany = FRAs
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+End Class
+' Library AppRefObjects -> Class ApprovalTemplate
+' 
+' DCS-Olympiev Oct 9, 2018
+' *********************************************************************************
+Class ApprovalTemplate As AppRefObject
+	Private className As String
+	Private status As Status 
+	Private crit As Criteria
+	
+	Sub New (doc As notesdocument)
+		Const FuncName = {ApprovalTemplate.New}
+		On Error GoTo ErrH
+		
+		className = {ApprovalTemplate}
+		Set status = New Status (getDoc(), "StatusNumber")
+		If Len(doc.Getitemvalue("criteriaDocUNID")(0)) = 32 Then
+			Set crit = ARO_getObject(ARO_getDocumentByUNID(doc.Getitemvalue("criteriaDocUNID")(0)))
+		Else
+			If Me.isNew() Then Set crit = me.createCriteria()
+		End If
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Sub
+
+	' Library AppRefObjects -> Function QueryOpen
+	' Boolean
+	' DCS-Olympiev Oct 12, 2018
+	' *********************************************************************************
+	Function QueryOpen() As Boolean
+		Const FuncName = {QueryOpen}
+		On Error GoTo ErrH
+
+		Dim s As New NotesSession
+		Call s.SetEnvironmentVar("appTemplateUNID",getDoc().GetItemValue("unid")(0))
+		Call s.SetEnvironmentVar(getDoc().GetItemValue("unid")(0)& "_NEED_SAVE", "0")
+		
+		QueryOpen = true
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function querySave
+	' Boolean
+	' DCS-Olympiev Oct 12, 2018
+	' *********************************************************************************
+	Function querySave() As Boolean
+		Const FuncName = {querySave}
+		On Error GoTo ErrH
+
+		Dim s As New NotesSession
+		Call s.SetEnvironmentVar(getDoc().GetItemValue("unid")(0)& "_NEED_SAVE", "1")
+
+		querySave = crit.save()
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function typeDocAdd
+	' Boolean
+	' DCS-Olympiev Oct 9, 2018
+	' *********************************************************************************
+	Function typeDocAdd (obj As Variant) As boolean
+		Const FuncName = {typeDocAdd}
+		On Error GoTo ErrH
+		
+		Dim currtypeDocUNID As String
+		currtypeDocUNID = currDoc.getitemvalue("typeDocUNID")(0)
+		
+		If AppRefObject..typeDocRemove() Then
+			If AppRefObject..typeDocAdd(obj) Then
+				If currtypeDocUNID <> currDoc.getitemvalue("typeDocUNID")(0) Then
+					If Not crit Is Nothing Then
+						typeDocAdd = crit.Clear()
+					Else
+						typeDocAdd = True
+					End If
+				Else
+					typeDocAdd = True
+				End If
+			End If
+		End If
+'		Call currDoc.Replaceitemvalue("typeDocUNID", doc.Getitemvalue("UNID")(0))
+'		Call currDoc.Replaceitemvalue("typeDocRu", doc.Getitemvalue("NameRu")(0))
+'		Call currDoc.Replaceitemvalue("typeDocEn", doc.Getitemvalue("NameEn")(0))
+'		If currtypeDocUNID <> currDoc.getitemvalue("typeDocUNID")(0) Then
+'			If Not crit Is Nothing Then
+'				typeDocAdd = crit.Clear()
+'			Else
+'				typeDocAdd = true
+'			End If
+'		Else
+'			typeDocAdd = True
+'		End If
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function moveToStatus
+	' Boolean
+	' DCS-Olympiev Oct 13, 2018
+	' *********************************************************************************
+	Function moveToStatus (statusNumber As String) As Boolean
+		Const FuncName = {}
+		On Error GoTo ErrH
+
+		'		Dim status As New status(getDoc, "StatusNumber")
+		
+		moveToStatus = status.MoveToStatus(statusNumber) 
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	
+	' Library AppRefObjects -> Function getCriteriaDocument
+	' NotesDocument
+	' DCS-Olympiev Oct 13, 2018
+	' *********************************************************************************
+	Function getCriteria As Criteria
+		Const FuncName = {getCriteria}
+		On Error GoTo ErrH
+		
+		Dim critDoc As NotesDocument
+		Dim typeDoc As NotesDocument
+		If crit Is Nothing Then	
+			If Len(currDoc.getitemValue("criteriaDocUNID")(0)) = 32 Then
+				Set crit = ARO_getObject(ARO_getDocumentByUNID(currDoc.getitemValue("criteriaDocUNID")(0)))
+			Else
+				Set crit = createCriteria()
+			End If
+		End If
+		
+
+		Set getCriteria = crit
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function clearCriteriaDocument
+	' Variant
+	' DCS-Olympiev Oct 13, 2018
+	' *********************************************************************************
+	Function clearCriteria() As Boolean
+		Const FuncName = {clearCriteriaDocument}
+		On Error GoTo ErrH
+
+		clearCriteria = crit.clear()
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function createCriteriaDocument
+	' NotesDocument
+	' DCS-Olympiev Oct 13, 2018
+	' *********************************************************************************
+	Function createCriteria() As Criteria
+		Const FuncName = {createCriteriaDocument}
+		On Error GoTo ErrH
+		
+		Dim critDoc As NotesDocument
+		Set critDoc = ARO_getDB().Createdocument()
+		Call critDoc.Replaceitemvalue("appTmplUNID", getDoc.Getitemvalue("UNID")(0))
+		Call critDoc.ReplaceItemValue("UNID", critDoc.Universalid)
+		Call getDoc.Replaceitemvalue("criteriaDocUNID", critDoc.Getitemvalue("UNID")(0))
+		critDoc.Replaceitemvalue("Authors", "[AdminAM]").Isauthors = True
+		Dim form As String
+		form = "crt_" 
+		If Len(currDoc.Getitemvalue("typeDocUNID")(0)) = 32 Then
+			Dim typeDoc As NotesDocument
+			
+			Set typeDoc = ARO_getDocumentByUNID(currDoc.Getitemvalue("typeDocUNID")(0))
+			form = form & typeDoc.Getitemvalue("CriteriaForm")(0)
+
+		End If
+		Call critDoc.Replaceitemvalue("form", form)		
+		Call critDoc.save(True, False)
+
+		Set crit = ARO_getObject(critDoc)
+		Set createCriteria = crit
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function isUnique
+	' Boolean
+	' DCS-Olympiev Oct 13, 2018
+	' *********************************************************************************
+	Function isUnique() As Boolean
+		Const FuncName = {isUnique}
+		On Error GoTo ErrH
+		
+		isUnique = True
+		
+		Dim extDb As NotesDatabase
+		Dim extColl As NotesDocumentCollection
+		Dim extDoc As NotesDocument
+		Dim appTmples As Variant 
+		Dim formula As String
+		Dim nextDoc As NotesDocument
+		Dim docType As DocumentType
+		
+		Set docType = New DocumentType(ARO_getDb.Getdocumentbyunid(getTypeDocUNID))
+		
+		Set extDb = DBT_GetDbBySearchKey(docType.getDatabaseSearchKey)
+		formula = {form = "} & docType.getDocumentForm() & {"}' & } & docType.getDoc().getItemValue("StatusField")(0) & { = "}
+		
+		Set extColl = extDb.Search(formula, nothing, 0)
+		Set extDoc = extColl.Getfirstdocument()
+'		On Error goto ok		
+'		Dim status As New Status(extDoc,docType.getDoc().getItemValue("StatusField")(0))
+'
+'		formula = {form = "} & docType.getDocumentForm() & {" & } & docType.getDoc().getItemValue("StatusField")(0) & { = "} & status.getApprovalStatus(1) & {"}
+'		Call status.clear()
+'		Set extColl = extDb.Search(formula, Nothing, 0)
+'ok:
+'		If Err <> 0  Then Err = 0
+'		On Error GoTo Endh
+		
+		Set extDoc = extColl.Getfirstdocument()
+		
+		While Not extDoc Is Nothing
+			Set nextDoc = extColl.Getnextdocument(extDoc)
+			If Not docType.CheckCriteria(extDoc) Then
+				Call extColl.Deletedocument(extDoc)
+			Else
+				Set executeParameter = extDoc
+				Set executeArgument = getCriteria().getDoc
+				Execute (getCriteria().getSearchFormula())
+				If Not executeReturnResult Then	Call extColl.Deletedocument(extDoc)
+			End If
+			Set extDoc = nextDoc
+		Wend
+		Print "documents = " & extColl.count & " after"
+		Set extDoc = extColl.Getfirstdocument()
+		Dim i As Integer
+		While Not extDoc Is Nothing') And isUnique			
+		'	appTmples = ARO_getApprovalTemplates(extDoc)
+			appTmples = ARO_getApprovalTemplatesWithCount(extDoc, getCriteria().getCriteriasCount() )
+			If UBound(appTmples) > 0 Or (Not appTmples(0) Is nothing)Then
+				For i = 0 To  UBound(appTmples)
+				'	If getCriteria().getCriteriasCount() = appTmples(i).getCriteria().getCriteriasCount() Then
+						Call linkWithCollection(appTmples(i))
+						isUnique = False
+				'	End If
+				Next
+			End If
+			If Not docsForSave Is Nothing Then Call docsForSave.ReInitialize()
+			Set extDoc = extColl.Getnextdocument(extDoc)
+		Wend
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$ & nLine & extDoc.Universalid & " - " & extDoc.Parentdatabase.Title & nLine & UNID &  nLine & nLine & getCriteria().getSearchFormula()
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function isValid
+	' Boolean
+	' DCS-Olympiev Oct 16, 2018
+	' *********************************************************************************
+	Function isValid As Boolean
+		Const FuncName = {isValid}
+		On Error GoTo ErrH
+
+		If (Not isDefaultTemplate()) And crit.getCriteriasCount() < 1 Then GoTo Endh
+'		If isDefaultTemplate() And crit.getCriteriasCount() > 0 Then GoTo EndH
+		
+	'	Dim visas As NotesDocumentCollection
+	'	Set visas = ARO_getDB().Getview(VISA_TEMPLATE_VIEW).Getalldocumentsbykey(getDoc.Getitemvalue("UNID")(0))
+
+		Dim visa As NotesDocument
+		Dim view As NotesView
+		Dim vec As NotesViewEntryCollection
+		Dim ve As NotesViewEntry
+		Dim i As Integer
+		Dim prevI As Integer
+		Dim visaDc As NotesDocumentCollection
+		Dim key (0 To 1) As Variant
+		
+		key(0) = UNID
+		
+		Set view = ARO_getDb.Getview("VisaTmplByTemplateUNID")	
+		Set vec = view.Getallentriesbykey(key(0))'getDoc.getItemvalue("UNID")(0))
+		If vec.Count < 1 Then GoTo EndH
+		Set ve = vec.Getfirstentry()
+		Set visa = ve.Document
+		If visa Is Nothing Then GoTo EndH
+		prevI = CInt(visa.getitemValue("visaCircle")(0))
+		If prevI <> 1 Then GoTo Endh
+		
+		While Not ve Is Nothing
+			Set visa = ve.document
+			i = CInt(visa.getitemValue("visaCircle")(0))
+			If i <> prevI Then
+				If (i - 1) <> prevI Then GoTo Endh
+			End If
+			prevI = i
+			Set ve = vec.Getnextentry(ve)
+		Wend
+		
+		key(1) = prevI
+		
+		Set visaDc = view.Getalldocumentsbykey(key)
+		
+		If visaDc.Count <> 1 Then GoTo Endh
+		
+		isValid = True
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function isDefaultTemplate
+	' Boolean
+	' DCS-Olympiev Oct 16, 2018
+	' *********************************************************************************
+	Function isDefaultTemplate() As Boolean
+		Const FuncName = {isDefaultTemplate}
+		On Error GoTo ErrH
+
+		If (currDoc.Getitemvalue("isDefault")(0) = "1") Then isDefaultTemplate = true
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function setCategory
+	' Boolean
+	' DCS-Olympiev Oct 30, 2018
+	' *********************************************************************************
+	Function setCategory (doc As notesdocument) As Boolean
+		Const FuncName = {setCategory}
+		On Error GoTo ErrH
+
+		Call getDoc.ReplaceItemValue("docCategoryRu",doc.Getitemvalue("NameRu")(0))
+		Call getDoc.ReplaceItemValue("docCategoryEn", doc.Getitemvalue("NameEn")(0))
+		Call getDoc.ReplaceItemValue("docCategoryUNID", doc.Getitemvalue("UNID")(0))
+
+		setCategory = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getTypeDocUNID
+	' String
+	' DCS-Olympiev Oct 30, 2018
+	' *********************************************************************************
+	Function getTypeDocUNID As String
+		Const FuncName = {getTypeDocUNID}
+		On Error GoTo ErrH
+
+		getTypeDocUNID = getDoc.getitemValue("typeDocUNID")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function suits
+	' Boolean
+	' DCS-Olympiev Oct 30, 2018
+	' *********************************************************************************
+	Function suits (doc As notesdocument) As Boolean
+		Const FuncName = {suits}
+		On Error GoTo ErrH
+
+		If crit Is Nothing Then Set crit = getCriteria
+		
+		Set executeParameter = doc
+		Set executeArgument = getCriteria().getDoc
+		Execute (crit.getSearchFormula())
+		suits = executeReturnResult 
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getName
+	' String
+	' DCS-Olympiev Oct 31, 2018
+	' *********************************************************************************
+	Function getName() As String
+		Const FuncName = {getName}
+		On Error GoTo ErrH
+
+		getName = getDoc.getitemValue("NameRu")(0) & " (" & getDoc.getitemValue("NameEn")(0) & ")"
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function toDelete
+	' Boolean
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function toDelete As Boolean
+	Const FuncName = {toDelete}
+	On Error GoTo ErrH
+
+	If CInt(status.GetCurrentStatusNumber()) > 0 Then
+		moveToStatus("900")
+	Else
+		Call AppRefObject..ToDelete()
+	End If
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getVisas
+	' NotesDocumentCollection
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function getVisas As NotesDocumentCollection
+		Const FuncName = {getVisas}
+		On Error GoTo ErrH
+
+		Set getVisas = ARO_getDB().Getview(VISA_TEMPLATE_VIEW).Getalldocumentsbykey(getDoc.Getitemvalue("UNID")(0))
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getCategoryUNID
+	' String
+	' DCS-Olympiev Jan 25, 2019
+	' *********************************************************************************
+	Function getCategoryUNID As String
+	On Error GoTo ErrH
+
+		getCategoryUNID = getDoc.getItemValue("docCategoryUNID")(0)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+End Class
+Public Class DocumentType As AppRefObject
+	
+	Sub New(doc As NotesDocument)
+		On Error GoTo eh
+		Const funcName = {DocumentType.Initialize}
+		
+		'Set Me.currDoc = doc
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Sub
+	
+	Function CategoryAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {DocumentType.CategoryAdd}
+		
+		Me.CategoryAdd = AppRefObject..CategoryAdd(obj)
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function CategoryRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {DocumentType.CategoryRemove}
+		
+		Me.CategoryRemove = AppRefObject..CategoryRemove
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function DatabaseAdd(doc As NotesDocument) As Boolean
+		On Error GoTo eh
+		Const funcName = {DocumentType.DatabaseAdd}
+		
+		Me.DatabaseAdd = AppRefObject..DatabaseAdd(doc)
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function DatabaseRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {DocumentType.DatabaseRemove}
+		
+		Me.DatabaseRemove = AppRefObject..DatabaseRemove
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function DatabaseFormAdd(formName As String) As Boolean
+		On Error GoTo eh
+		Const funcName = {DocumentType.DatabaseFormAdd}
+		
+		Me.DatabaseFormAdd = AppRefObject..DatabaseFormAdd(formName)
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function DatabaseFormRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {DocumentType.DatabaseFormRemove}
+		
+		Me.DatabaseFormRemove = AppRefObject..DatabaseFormRemove
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function CheckCriteria(docExt As NotesDocument) As Boolean
+		On Error GoTo eh
+		Const funcName = {DocumentType.CheckCriteria}
+		
+		Dim primarySelection As String
+		
+		primarySelection = getDoc.getItemValue("PrimarySelection")(0)
+		
+		If primarySelection = "" Then
+			CheckCriteria = True
+			GoTo fn
+		End If
+		
+		Set executeParameter = docExt
+		Execute(Me.getDoc().GetItemValue("PrimarySelection")(0))
+		CheckCriteria = executeReturnResult
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function CheckConditions(docExt As NotesDocument) As Boolean
+		On Error GoTo eh
+		Const funcName = {DocumentType.CheckConditions}
+		
+		Set executeParameter = docExt
+		Execute(Me.getDoc().GetItemValue("RequiredConditions")(0))
+		CheckConditions = executeReturnResult
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	' Library AppRefObjects -> Function getDbSearchKey
+	' String
+	' DCS-Olympiev Oct 31, 2018
+	' *********************************************************************************
+	Function getDatabaseSearchKey As String
+		Const FuncName = {getDbSearchKey}
+		On Error GoTo ErrH
+
+		getDatabaseSearchKey = getDoc.getitemValue("DatabaseSearchKey")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getDocumentForm
+	' String
+	' DCS-Olympiev Oct 31, 2018
+	' *********************************************************************************
+	Function getDocumentForm As String
+		Const FuncName = {getDocumentForm}
+		On Error GoTo ErrH
+
+		getDocumentForm = getDoc.getitemValue("DatabaseForm")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getStatusField
+	' String
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function getStatusField As String
+		Const FuncName = {getStatusField}
+		On Error GoTo ErrH
+
+		getStatusField = getDoc.getItemValue("StatusField")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	
+	Function typeDocAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {DocumentType.CategoryAdd}
+		
+		Me.typeDocAdd = AppRefObject..typeDocAdd(obj)
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function typeDocRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {DocumentType.CategoryRemove}
+		
+		Me.typeDocRemove = AppRefObject..typeDocRemove
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	' Library AppRefObjects -> Function getFirmsNames
+	' Variant
+	' DCS-Olympiev Dec 4, 2018
+	' *********************************************************************************
+	Function getFirmsUNIDS (mainDoc As NotesDocument) As Variant
+		Const FuncName = {getFirmsNames}
+		On Error GoTo ErrH
+
+		Dim script As String
+		script = getDoc.getItemVAlue("CompanySelection")(0)
+		If script = "" Then GoTo EndH
+		Set executeReturnValue = Nothing
+		
+		Dim resCol As Variant
+		'	Call ExecScript(script, mainDoc)
+		Set executeParameter = mainDoc
+		Execute(script)
+		Set resCol = executeReturnValue	
+		Dim resDoc As NotesDocument
+		If resCol IsA "NOTESDOCUMENT" Then
+			getFirmsUNIDS = resCol.getItemValue("UNID")(0)
+		ElseIf resCol IsA "NOTESDOCUMENTCOLLECTION" Then 
+			Set resDoc = resCol.getFirstDocument
+			While Not resDoc Is Nothing 
+				getFirmsUNIDS = ArrayAppendElement(getFirmsUNIDS, resDoc.getItemValue("UNID")(0))
+				Set resDoc = resCol.getNextDocument(resDoc)
+			Wend
+		ElseIf resCol IsA "DOCUMENTCOLLECTION" Then 
+			
+			Set resDoc = resCol.getFirstDocument
+			While Not resDoc Is Nothing 
+				getFirmsUNIDS = ArrayAppendElement(getFirmsUNIDS,resDoc.getItemValue("UNID")(0))
+				Set resDoc = resCol.getNextDocument()
+			Wend
+		Else
+			Error 5012, "Incorrect executeReturnValue type"
+		End If
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getName
+	' String
+	' DCS-Olympiev Dec 27, 2018
+	' *********************************************************************************
+	Function getName As String
+		Const FuncName = {getName}
+		On Error GoTo ErrH
+
+		getName = getDoc.getitemValue("NameRu")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getFirmsNames
+	' Variant
+	' DCS-Olympiev Dec 4, 2018
+	' *********************************************************************************
+	Function getFirmsNames (mainDoc As NotesDocument) As Variant
+	Const FuncName = {getFirmsNames}
+	On Error GoTo ErrH
+
+	Dim script As String
+	script = getDoc.getItemVAlue("CompanySelection")(0)
+	If script = "" Then GoTo EndH
+	Set executeReturnValue = Nothing
+		
+	Dim resCol As Variant
+	Call ExecScript(script, mainDoc)
+	Set resCol = executeReturnValue	
+		Dim resDoc As NotesDocument
+	If resCol IsA "NOTESDOCUMENT" Then
+		getFirmsNames = resCol.getItemValue("Firm")(0)
+	ElseIf resCol IsA "NOTESDOCUMENTCOLLECTION" then 
+		Set resDoc = resCol.getFirstDocument
+		While Not resDoc Is Nothing 
+			getFirmsNames = ArrayAppendElement(getFirmsNames,resCol.getItemValue("Firm")(0))
+			Set resDoc = resCol.getNextDocument(resDoc)
+		Wend
+	ElseIf resCol IsA "DOCUMENTCOLLECTION" Then 
+		
+		Set resDoc = resCol.getFirstDocument
+		While Not resDoc Is Nothing 
+			getFirmsNames = ArrayAppendElement(getFirmsNames,resCol.getItemValue("Firm")(0))
+			Set resDoc = resCol.getNextDocument()
+		Wend
+	Else
+		Error 5012, "Incorrect executeReturnValue type"
+	End If
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getDocumentsForReport
+	' Documentcollection
+	' DCS-Olympiev Jan 11, 2019
+	' *********************************************************************************
+	Function getDocumentsForReport (docExt As NotesDocument) As DocumentCollection
+		On Error GoTo ErrH
+
+		Dim formula As String
+		Dim col As New DocumentCollection
+		
+		formula = getDoc.getItemValue("reportGeneratingFormula")(0)
+		
+		If formula = "" Then
+			Set getDocumentsForReport = col
+			GoTo endH
+		End If
+		'			MsgBox 1
+		Set executeParameter = docExt
+		Execute(Me.getDoc().GetItemValue("reportGeneratingFormula")(0))
+		'Call col.addDocumentCollection(executeReturnValue)
+		Set col = executeReturnValue
+		
+		Set getDocumentsForReport = col
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library AppRefObjects -> Function needReport
+	' Boolean
+	' DCS-Olympiev Jan 11, 2019
+	' *********************************************************************************
+	Function needReport As Boolean
+		On Error GoTo ErrH
+
+		If getDoc.getItemValue("reportGenerating")(0) = "1" Then needReport = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+End Class
+' Library AppRefObjects -> Class Criteria
+' 
+' DCS-Olympiev Oct 13, 2018
+' *********************************************************************************
+Class Criteria As AppRefObject
+	Private className As String
+	Private keyView As NotesView
+	
+	Sub New (doc As NotesDocument)
+		className = {Criteria}
+	End Sub
+	' Library AppRefObjects -> Function getSearchFormula
+	' String
+	' DCS-Olympiev Oct 13, 2018
+	' *********************************************************************************
+	Function getSearchFormula As String
+		Const FuncName = {Criteria.getSearchFormula}
+		On Error GoTo ErrH
+
+		Dim lotusscript As String
+		Dim i As Integer
+		
+		Dim fieldType As String
+		Dim fldName As String
+		
+		lotusscript = |executeReturnResult = True
+		Dim tmpDb_| & executeCounter & | as notesdatabase
+		Dim tmpExtdb_| & executeCounter & | as notesdatabase
+		Set tmpDb_| & executeCounter & | = executeParameter.parentDatabase
+		Set tmpExtdb_| & executeCounter & | = executeArgument.parentDatabase
+		executeCounter = executeCounter + 1
+|
+		ForAll itm In getDoc.Items
+			lotusscript = lotusscript & getLotusScript(itm)
+		End ForAll
+		
+		getSearchFormula = lotusscript
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function clear
+	' Boolean
+	' DCS-Olympiev Oct 15, 2018
+	' *********************************************************************************
+	Function clear As Boolean
+		Const FuncName = {Criteria.clear}
+		On Error GoTo ErrH
+
+		Dim critDoc As NotesDocument
+		Set critDoc = getDoc()
+		If Not critDoc Is Nothing Then
+			ForAll itm In critDoc.Items
+				If itm.Name = "appTmplUnid" Or itm.Name = "UNID" Or itm.Name = "Authors" Then GoTo nextItem ' itm.Name = "form" Or 
+				Call critDoc.Removeitem(itm.Name)
+				'				Select Case itm.Type
+				'					Case 1024, 768
+				'						itm.Values = 0
+				'					Case 1074, 1280, 1536, 1075
+				'						itm.Values = "" 
+				'				End Select
+nextItem:
+			End ForAll	
+		End If
+		clear = True
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function setForm
+	' Boolean
+	' DCS-Olympiev Oct 15, 2018
+	' *********************************************************************************
+	Function setForm (typeDocUNID As String) As Boolean
+		Const FuncName = {Criteria.setForm}
+		On Error GoTo ErrH
+
+		If Len(typeDocUNID) = 32 Then
+			Dim typeDoc As NotesDocument
+			Dim form As String
+			
+			Set typeDoc = ARO_getDocumentByUNID(typeDocUNID)
+			form = "crt_" & typeDoc.Getitemvalue("CriteriaForm")(0)
+			Call getDoc.replaceItemValue("DocTypeUNID", typeDoc.Getitemvalue("UNID"))
+			Call getDoc.Replaceitemvalue("form", form)
+			Call getDoc().Computewithform(False, False)
+			Call getDoc.Save(True, False)
+		End If
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getFieldType
+	' String
+	' DCS-Olympiev Oct 30, 2018
+	' *********************************************************************************
+	Private Function getLotusscript (item As NotesItem) As String
+		Const FuncName = {Criteria.getLotusscript}
+		On Error GoTo ErrH
+		
+		Dim fieldType As String
+		Dim fldName As String
+		Dim critSetting As NotesDocument
+		
+		fieldType = item.Name
+
+		If Left(fieldType,3) <> "ch_" Then GoTo endH
+		If item.Values(0) <> "1" Then GoTo endh
+		
+		fieldType = StrRight(fieldType,"ch_")
+		fldName = StrRight(fieldType,"_")
+		fieldType = StrLeft(fieldType, "_")
+		
+		Set critSetting = getKeyView.Getdocumentbykey(fieldType)
+		
+		getLotusscript = |
+| & critSetting.Getitemvalue("critFormula")(0)
+		
+		getLotusscript = Replace(getLotusScript, "%fldName%", {"} & fldName & {"})
+		getLotusscript = Replace(getLotusScript, "%secondFldName%", {"} & fldName & {_End"})
+		getLotusscript = Replace(getLotusScript, "%subName%", fldName & "_Sub")
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getKeyView
+	' NotesView
+	' DCS-Olympiev Oct 30, 2018
+	' *********************************************************************************
+	Function getKeyView As NotesView
+		Const FuncName = {Criteria.getKeyView}
+		On Error GoTo ErrH
+
+		If keyView Is Nothing Then Set keyView = ARO_getDb.Getview(CRITERIA_KEY_VIEW)
+		
+		Set getKeyView = keyView
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library AppRefObjects -> Function getCriteriasCount
+	' Long
+	' DCS-Olympiev Oct 31, 2018
+	' *********************************************************************************
+	Function getCriteriasCount As Long
+		Const FuncName = {Criteria.getCriteriasCount}
+		On Error GoTo ErrH
+		Dim crit As Criteria
+		ForAll itm In getDoc.Items
+			If Left(itm.Name,3) = "ch_"Then
+				If itm.Values(0) = "1" Then 
+					If InStr(itm.Name, "ch_link_") > 0 Then
+						Set crit = ARO_getObject(ARO_getDocumentByUNID(getDoc().getItemvalue(StrRight(itm.Name, "_link_") & "DocUNID")(0)))
+						If crit Is Nothing Then 
+							getCriteriasCount = getCriteriasCount + 1
+						Else
+							getCriteriasCount = getCriteriasCount + crit.getCriteriasCount
+						End If
+					Else
+						getCriteriasCount = getCriteriasCount + 1
+					End If
+				End if	
+			End If 
+		End ForAll
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	
+	Function SetEI(dcRef As NotesDocumentCollection) As Boolean
+		On Error GoTo eh
+		Const funcName = {Criteria.SetEI}
+		
+		Dim docRef As NotesDocument
+		Dim ExpenseItemUNID As Variant
+		Dim ExpenseItemRu As Variant
+		Dim ExpenseItemEn As Variant
+		Dim ExpenseItem As Variant ' Olimpus 12/2018
+		Dim i As Long
+		
+		SetEI = False
+		If dcRef.Count > 0 Then
+			ReDim ExpenseItemUNID(dcRef.Count - 1)
+			ReDim ExpenseItemRu(dcRef.Count - 1)
+			ReDim ExpenseItemEn(dcRef.Count - 1)
+			ReDim ExpenseItem(dcRef.Count - 1)
+			i = 0
+			Set docRef = dcRef.GetFirstDocument
+			Do While Not docRef Is Nothing
+				ExpenseItemUNID(i) = docRef.GetItemValue("UNID")(0)
+				If InStr(docRef.GetItemValue("RName")(0), "/") > 0 Then
+					ExpenseItemRu(i) = StrRight(docRef.GetItemValue("RName")(0), "/")
+					ExpenseItemEn(i) = StrLeft(docRef.GetItemValue("RName")(0), "/")
+				Else
+					ExpenseItemRu(i) = docRef.GetItemValue("RName")(0)
+					ExpenseItemEn(i) = docRef.GetItemValue("RName")(0)
+				End If
+				ExpenseItem(i) = docRef.GetItemValue("RName")(0) ' Olimpus 12/2018
+				i = i + 1
+				Set docRef = dcRef.GetNextDocument(docRef)
+			Loop
+			Call Me.getDoc().ReplaceItemValue("ExpenseItemUNID", ExpenseItemUNID)
+			Call Me.getDoc().ReplaceItemValue("ExpenseItemRu", ExpenseItemRu)
+			Call Me.getDoc().ReplaceItemValue("ExpenseItemEn", ExpenseItemEn)
+			' Olimpus 12/2018 <<
+			' !!!!!!!!!!!!!!!!!!
+			Call Me.getDoc().ReplaceItemValue("ExpenseItem", ExpenseItem)
+			' Olimpus >>
+			SetEI = True
+		End If
+
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function SetEIEmpty As Boolean
+		On Error GoTo eh
+		Const funcName = {Criteria.SetEIEmpty}
+		
+		SetEIEmpty = False
+		Call Me.getDoc().ReplaceItemValue("ExpenseItemUNID", "")
+		Call Me.getDoc().ReplaceItemValue("ExpenseItemRu", "")
+		Call Me.getDoc().ReplaceItemValue("ExpenseItemEn", "")
+		SetEIEmpty = True
+
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function SetCC(dcRef As NotesDocumentCollection) As Boolean
+		On Error GoTo eh
+		Const funcName = {Criteria.SetCC}
+
+		Dim docRef As NotesDocument
+		Dim CostCentrUNID As Variant
+		Dim CostCentr As Variant
+		Dim i As Long
+		
+		SetCC = False
+		If dcRef.Count > 0 Then
+			ReDim CostCentrUNID(dcRef.Count - 1)
+			ReDim CostCentr(dcRef.Count - 1)
+			i = 0
+			Set docRef = dcRef.GetFirstDocument
+			Do While Not docRef Is Nothing
+				CostCentrUNID(i) = docRef.GetItemValue("UNID")(0)
+				CostCentr(i) = docRef.GetItemValue("KodZ")(0) & " (" & docRef.GetItemValue("OtdelZ")(0) & ")"
+				
+				i = i + 1
+				Set docRef = dcRef.GetNextDocument(docRef)
+			Loop
+			Call Me.getDoc().ReplaceItemValue("CostCentrUNID", CostCentrUNID)
+			Call Me.getDoc().ReplaceItemValue("CostCentr", CostCentr)
+			SetCC = True
+		End If
+
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function SetCCEmpty As Boolean
+		On Error GoTo eh
+		Const funcName = {Criteria.SetCCEmpty}
+		
+		SetCCEmpty = False
+		Call Me.getDoc().ReplaceItemValue("CostCentrUNID", "")
+		Call Me.getDoc().ReplaceItemValue("CostCentr", "")
+		SetCCEmpty = True
+
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function SetCategoryScala(dcRef As NotesDocumentCollection) As Boolean
+		On Error GoTo eh
+		Const funcName = {Criteria.SetCategoryScala}
+
+		Dim docRef As NotesDocument
+		Dim Category_Scala As Variant
+		Dim CategoryDescList As Variant
+		Dim i As Long
+		
+		Dim dbV As NotesDatabase
+		Dim cats As Variant
+		Dim doc As NotesDocument
+		
+		SetCategoryScala = False
+		If dcRef.Count > 0 Then
+			ReDim Category_Scala(dcRef.Count - 1)
+			i = 0
+			Set docRef = dcRef.GetFirstDocument
+			Do While Not docRef Is Nothing
+				Category_Scala(i) = docRef.GetItemValue("RefName")(0)
+				If IsArray(CategoryDescList) Then
+					CategoryDescList = ArrayAppend(CategoryDescList, docRef.GetItemValue("RefDesc"))
+				Else
+					CategoryDescList = docRef.GetItemValue("RefDesc")
+				End If
+				
+				i = i + 1
+				Set docRef = dcRef.GetNextDocument(docRef)
+			Loop
+			Call Me.getDoc().ReplaceItemValue("Category_Scala", FullTrim(Category_Scala))
+			Call Me.getDoc().ReplaceItemValue("CategoryDescList", FullTrim(CategoryDescList))
+			Call Me.SetCategoryDescEmpty()
+			SetCategoryScala = True
+		End If
+
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function SetCategoryScalaEmpty As Boolean
+		On Error GoTo eh
+		Const funcName = {Criteria.SetCategoryScalaEmpty}
+		
+		SetCategoryScalaEmpty = False
+		Call Me.getDoc().ReplaceItemValue("Category_Scala", "")
+		Call Me.getDoc().ReplaceItemValue("CategoryDescList", "")
+		Call Me.SetCategoryDescEmpty()
+		SetCategoryScalaEmpty = True
+
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function SetCategoryDesc(selected As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {Criteria.SetCategoryDesc}
+		
+		SetCategoryDesc = False
+		Call Me.getDoc().ReplaceItemValue("CategoryDesc", FullTrim(selected))
+		SetCategoryDesc = True
+
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function SetCategoryDescEmpty As Boolean
+		On Error GoTo eh
+		Const funcName = {Criteria.SetCategoryDescEmpty}
+		
+		SetCategoryDescEmpty = False
+		Call Me.getDoc().ReplaceItemValue("CategoryDesc", "")
+		SetCategoryDescEmpty = True
+
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	' Library AppRefObjects -> Function Save
+	' Boolean
+	' DCS-Olympiev Nov 8, 2018
+	' *********************************************************************************
+	Function Save As Boolean
+		Const FuncName = {Save}
+		On Error GoTo ErrH
+
+		Dim dc As NotesDocumentCollection
+		Dim crit As Criteria
+		Dim doc As NotesDocument
+		
+		Set dc = getDoc.Responses
+		Set doc = dc.Getfirstdocument()
+		While Not doc Is Nothing
+			Set crit = New Criteria(doc)
+			Call crit.save()
+			Set doc = dc.Getnextdocument(doc)
+		Wend
+		
+		save = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	
+	Function SetEmpty As Boolean
+		On Error GoTo eh
+		Const funcName = {Criteria.SetEmpty}
+		
+		SetEmpty = False
+		ForAll item In Me.getDoc().Items
+			If Left(item.Name, 3) = {ch_} Then
+				Call Me.SetChEmpty(item.Name)
+			End If
+		End ForAll
+		SetEmpty = True
+
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function SetChEmpty(fldName) As Boolean
+		On Error GoTo eh
+		Const funcName = {Criteria.SetEmpty}
+		
+		SetChEmpty = False
+		Call Me.getDoc().ReplaceItemValue(fldName, "")
+		SetChEmpty = True
+
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	' Library AppRefObjects -> Function suits
+	' Boolean
+	' DCS-Olympiev Nov 13, 2018
+	' *********************************************************************************
+	Function suits (extDoc As NotesDocument) As Boolean
+		Const FuncName = {suits}
+		On Error GoTo ErrH
+
+		Dim script As String
+		script = getSearchFormula()
+		Set executeParameter1 = extDoc
+		Set executeArgument1 = Me.getDoc()
+		
+		script = Replace(script, "executeParameter","executeParameter1")
+		script = Replace(script, "executeArgument","executeArgument1")
+		script = Replace(script, "executeReturnResult","executeReturnResult1")
+		
+		Execute(script)
+		
+		suits = executeReturnResult1
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+End Class
+' Library AppRefObjects -> Class DocCategory
+' 
+' DCS-Olympiev Oct 30, 2018
+' *********************************************************************************
+Class DocCategory As AppRefObject
+	Private className As String
+
+	Sub New (doc As NotesDocument)
+		className = {DocCategory}
+	End Sub
+
+	' Library AppRefObjects -> Function getApprovalTemplates
+	' Variant
+	' DCS-Olympiev Oct 30, 2018
+	' *********************************************************************************
+	Function getApprovalTemplates As Variant
+		Const FuncName = {getApprovalTemplates}
+		On Error GoTo ErrH
+
+		Dim view As NotesView
+		Dim dc As NotesDocumentCollection
+		Dim doc As NotesDocument
+		Dim appTmpls () As ApprovalTemplate
+		Dim i As Integer
+		
+		Set view = ARO_GetDb.Getview(APP_TMPL_BY_CATEGORY_VIEW)
+		Set dc = view.Getalldocumentsbykey(getDoc.getItemValue("UNID")(0))
+		Set doc = dc.Getfirstdocument()
+		While Not doc Is Nothing
+			ReDim Preserve appTmpls(i) As ApprovalTemplate
+			Set appTmpls(i) = New ApprovalTemplate(doc)
+			i = i + 1
+			Set doc = dc.Getnextdocument(doc)
+		Wend
+		
+		getApprovalTemplates = appTmpls
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+End Class
+Class FRADelegate As AppRefObject
+
+	Sub New(doc As NotesDocument)
+		On Error GoTo eh
+		Const funcName = {FRADelegate.New}
+		
+		Set Me.currDoc = doc
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Sub
+	
+	Function PersonAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {FRADelegate.PersonAdd}
+		
+		Me.PersonAdd = AppRefObject..PersonAdd(obj)
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function PersonRemove As Boolean
+		On Error GoTo eh
+		Const funcName = {FRADelegate.PersonRemove}
+		
+		Me.PersonRemove = AppRefObject..PersonRemove
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+	
+	Function CompanyAdd(obj As Variant) As Boolean
+		On Error GoTo eh
+		Const funcName = {FRADelegate.CompanyAdd}
+		
+		Me.CompanyAdd = AppRefObject..CompanyAdd(obj)
+		
+		GoTo fn
+eh:
+		Dim errS As String
+		errS = objName & {: } & funcName & {: in line } & Erl & nLine & Error$
+		Error Err, errS
+fn:
+	End Function
+End Class
+'++LotusScript Development Environment:2:2:Initialize:1:10
+Sub Initialize
+	nLine = Chr(10) & Chr(13)
+End Sub
+
+
+'++LotusScript Development Environment:2:1:ARO_getApprovalTemplatesWithCount:6:8
+' Library AppRefObjects -> Function ARO_getApprovalTemplatesWithCount
+' Variant
+' Получает массив шаблонов по документу с количеством критериев = count. Дефолтный шаблон не берётся
+' DCS-Olympiev Dec 12, 2018
+' *********************************************************************************
+Function ARO_getApprovalTemplatesWithCount (extDoc As NotesDocument, count As Long) As Variant
+	Const FuncName = {ARO_getApprovalTemplatesWithCount}
+	On Error GoTo ErrH
+
+	Dim view As NotesView
+	Dim dc As NotesDocumentCollection
+	Dim docType As DocumentType
+	Dim appDoc As NotesDocument
+	Dim appTmpl As ApprovalTemplate
+	Dim i As Integer
+	Dim appTmples() As ApprovalTemplate
+	Dim tmpDb As NotesDatabase
+	
+	Set tmpDb = extDoc.Parentdatabase
+	ReDim Preserve appTmples(0) As ApprovalTemplate
+	Set appTmples(0) = Nothing
+	
+	Set docType = ARO_getDocumentType(extDoc)
+	Set view = ARO_getDb.Getview(APP_TMPL_BY_DOCTYPE_VIEW_VERIFICATION)
+	
+	Set dc = view.Getalldocumentsbykey(docType.UNID)
+	Set appDoc= dc.Getfirstdocument()
+	While Not appDoc Is Nothing 
+		Set appTmpl = New ApprovalTemplate(appDoc)
+		If appTmpl.getCriteria().getCriteriasCount() <> count Then GoTo nextApp
+		If appTmpl.Suits(extDoc) Then 
+			ReDim Preserve appTmples(i) As ApprovalTemplate
+			Set appTmples(i) = appTmpl
+			i = i + 1
+		End If
+nextApp:
+		Set appDoc = dc.Getnextdocument(appDoc)
+	Wend
+	
+	ARO_getApprovalTemplatesWithCount = appTmples
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:ARO_getObject:5:8
+' Library AppRefObjects -> Function ARO_getObject
+' Variant
+' DCS-Olympiev Oct 19, 2018
+' *********************************************************************************
+Function ARO_getObject (arg As Variant) As Variant
+	Const FuncName = {ARO_getObject}
+	On Error GoTo ErrH
+
+	Dim obj As Variant
+	Dim doc As NotesDocument
+	
+	Set doc = arg
+	
+	Select Case doc.getitemValue("form")(0)
+		Case "appTmpl"
+			Set obj = New ApprovalTemplate(doc)
+		Case "funcRole"
+			Set obj = New FuncRole(doc)
+		Case "DocType"
+			Set obj = New DocumentType(doc)
+		Case "FuncRoleAssignment"
+			Set obj = New FuncRoleAssignment(doc)
+		Case "Delegation"
+			Set obj = New FRADelegate(doc)
+		Case Else
+			If Left(doc.Getitemvalue("form")(0),3) = "crt" Then
+				Set obj = New Criteria(doc)
+			Else
+				Set ARO_getObject = Nothing'New AppRefObject(doc)
+				GoTo endH		
+			End If
+	End Select
+	
+'	Set ARO_getObject = linkWithCollection(Obj)
+	Set ARO_getObject = obj	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$ & nLine & doc.Universalid
+	Resume EndH
+EndH:
+End Function
+
+
+'++LotusScript Development Environment:2:1:ARO_getUserFRAs:5:8
+' Library AppRefObjects -> Function ARO_getUserFRAs
+' Documentcollection
+' DCS-Olympiev Jan 18, 2019
+' *********************************************************************************
+Function ARO_getUserFRAs (userName As String) As ObjectCollection
+	On Error GoTo ErrH
+
+	Dim fraDc As NotesDocumentCollection
+	Dim Fras As New ObjectCollection
+	Dim fraDoc As NotesDocument
+	Dim fra As FuncRoleAssignment
+	Dim db As NotesDatabase
+	Dim view As NotesView
+	
+	Set db = ARO_getDB
+	Set view = db.Getview("(FRAByUserName)")
+	Set fraDc = view.Getalldocumentsbykey(userName)
+	Set fraDoc = fraDc.Getfirstdocument()
+	While Not fraDoc Is Nothing
+		Set fra = New FuncRoleAssignment(fraDoc)
+		Call fras.addObject(fra)
+		Set fraDoc = fraDc.Getnextdocument(fraDoc)
+	Wend
+
+	Set view = db.Getview("(FRACalculated)")
+	Set fraDoc = view.Getfirstdocument()
+	While Not fraDoc Is Nothing
+		Set fra = New FuncRoleAssignment(fraDoc)
+		If fra.isCalculated() Then
+			Stop
+			If fra.checkPerson(userName) Then Call fras.addObject(fra)			
+		End If
+
+		Set fraDoc = view.Getnextdocument(fraDoc)
+	Wend
+	
+
+	Set ARO_getUserFRAs = fras
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> "  & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:ARO_createListDocument:5:8
+' Library AppRefObjects -> Function ARO_createListDocument
+' NotesDocument
+' DCS-Olympiev Nov 2, 2018
+' *********************************************************************************
+Function ARO_createListDocument (objects As ObjectCollection, title As String) As NotesDocument
+	Const FuncName = {ARO_createListDocument}
+	On Error GoTo ErrH
+
+	Dim doc As NotesDocument
+	
+	Set doc = ARO_getDb().Createdocument()
+	Call doc.Replaceitemvalue("form", "documentList")
+	Call doc.Replaceitemvalue("title", title)
+	
+	Dim rti As New NotesRichTextItem (doc, "list")
+	Dim obj As Interface
+	
+	Set obj = objects.getFirstObject()
+	While Not obj Is Nothing
+		 Call rti.Appenddoclink(obj.getDoc(), "link to object")
+		 Call rti.Appendtext(" - " & obj.getName())
+		 Call rti.Addnewline(1)
+		 Set obj = objects.getNextObject()
+	Wend
+
+	Set ARO_createListDocument = doc
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:ARO_getDB:5:8
+' Library AppRefObjects -> Function ARO_getDB
+' NotesDatabase
+' DCS-Olympiev Oct 13, 2018
+' *********************************************************************************
+Function ARO_getDB() As NotesDatabase
+	Const FuncName = {ARO_getDB}
+	On Error GoTo ErrH
+
+	If dbAppRef Is Nothing Then Set dbAppRef = DBT_GetDbBySearchKey(APP_REFERENCE_SEARCHKEY)
+	Set ARO_getDB = dbAppRef
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:ARO_getDocumentType:5:8
+' Library AppRefObjects -> Function ARO_getDocumentType
+' DocumentType
+' DCS-Olympiev Oct 30, 2018
+' *********************************************************************************
+Function ARO_getDocumentType (doc As notesdocument) As DocumentType
+	Const FuncName = {ARO_getDocumentType}
+	On Error GoTo ErrH
+
+	Dim view As NotesView
+	Dim key As String
+'	Dim key (0 To 1) As String
+	Dim dc As NotesDocumentCollection
+	Dim typeDoc As NotesDocument
+	Dim dCol As New DocumentCollection
+	Dim docType As DocumentType
+	
+'	Set executeParameter = doc	
+	Set view = ARO_getDb.getview(TYPEDOC_BY_DB_FORM_VIEW)
+'	key(0) = DBT_getSearchKeyByDb(doc.parentdatabase)
+'	key(1) = doc.Getitemvalue("form")(0)
+	key = DBT_getSearchKeyByDb(doc.parentdatabase) & "~" & doc.Getitemvalue("form")(0)
+	Set dc = view.Getalldocumentsbykey(key, true)
+
+	Set typeDoc = dc.Getfirstdocument()
+	While Not typeDoc Is Nothing
+		Set docType = New DocumentType(typeDoc)
+'		If typeDoc.Getitemvalue("PrimarySelection")(0) <> "" then
+'			Execute(typeDoc.Getitemvalue("PrimarySelection")(0))
+'			If executeReturnResult Then Call dCol.addDocument(typeDoc)
+'		Else
+		If docType.CheckCriteria(doc) then
+			Call dCol.addDocument(typeDoc)
+		End If
+		Set typeDoc = dc.Getnextdocument(typeDoc)
+	Wend
+	
+	If dCol.Count > 1 Then Error 5012, "Найдено более одного типа документа!"
+	If dCol.Count = 0 Then Error 5012, "Не найдено ни одного типа документа!"
+	
+	Set ARO_getDocumentType = New DocumentType(dCol.getFirstDocument())
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:ARO_getApprovalTemplates:6:8
+' Library AppRefObjects -> Function ARO_getApprovalTemplates
+' Variant
+' Получает массив шаблонов по документу
+' DCS-Olympiev Oct 30, 2018
+' *********************************************************************************
+Function ARO_getApprovalTemplates (doc As NotesDocument) As Variant
+	Const FuncName = {ARO_getApprovalTemplates}
+	On Error GoTo ErrH
+
+	Dim view As NotesView
+	Dim dc As NotesDocumentCollection
+	Dim docType As DocumentType
+	Dim appDoc As NotesDocument
+	Dim appTmpl As ApprovalTemplate
+	Dim i As Integer
+	Dim appTmples() As ApprovalTemplate
+	Dim tmpDb As NotesDatabase
+	
+	Set tmpDb = doc.Parentdatabase
+	ReDim Preserve appTmples(0) As ApprovalTemplate
+	Set appTmples(0) = Nothing
+	
+	Set docType = ARO_getDocumentType(doc)
+	Set view = ARO_getDb.Getview(APP_TMPL_BY_DOCTYPE_VIEW_VERIFICATION)
+	
+	Set dc = view.Getalldocumentsbykey(docType.UNID)
+	Set appDoc= dc.Getfirstdocument()
+	While Not appDoc Is Nothing 
+		Set appTmpl = New ApprovalTemplate(appDoc)
+		If appTmpl.Suits(doc) Then 
+			ReDim Preserve appTmples(i) As ApprovalTemplate
+			Set appTmples(i) = appTmpl
+			i = i + 1
+		End If
+		Set appDoc = dc.Getnextdocument(appDoc)
+	Wend
+	
+	If i = 0 Then 
+		Set view = ARO_getDb.Getview(APP_TMPL_BY_DOCTYPE_DEFAULT_VIEW)
+		Set dc = view.Getalldocumentsbykey(docType.UNID)
+		Set appDoc= dc.Getfirstdocument()
+		While Not appDoc Is Nothing 
+			Set appTmpl = New ApprovalTemplate(appDoc)
+			ReDim Preserve appTmples(i) As ApprovalTemplate
+			Set appTmples(i) = appTmpl
+			i = i + 1
+			Set appDoc = dc.Getnextdocument(appDoc)
+		Wend
+	End If
+
+	ARO_getApprovalTemplates = appTmples
+	
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+
+'++LotusScript Development Environment:2:1:ARO_getDocumentByUNID:5:8
+' Library AppRefObjects -> Function ARO_getDocumentByUNID
+' NotesDocument
+' DCS-Olympiev Oct 13, 2018
+' *********************************************************************************
+Function ARO_getDocumentByUNID(unid As String) As NotesDocument
+	Const FuncName = {ARO_getDocumentByUNID}
+	On Error GoTo ErrH
+	
+	Dim view As NotesView
+	
+	Set view = ARO_getDb.getview(VIEW_BYUNID)
+	Set ARO_getDocumentByUNID = view.Getdocumentbykey(unid)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+
+
+
+
+

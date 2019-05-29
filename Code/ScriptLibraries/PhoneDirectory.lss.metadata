@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?><note class="filter" maintenanceversion="1.0" replicaid="43258409002A14B3" version="10.0" xmlns="http://www.lotus.com/dxl">
+<noteinfo noteid="1be" sequence="6" unid="97E6244AC0D8B85B4325838C0046A1DE">
+<created><datetime>20190124T155129,58+03</datetime></created>
+<modified><datetime>20190529T103939,51+03</datetime></modified>
+<revised><datetime>20190325T101322,07+03</datetime></revised>
+<lastaccessed><datetime>20190529T103939,51+03</datetime></lastaccessed>
+<addedtofile><datetime>20190529T103939,51+03</datetime></addedtofile></noteinfo>
+<updatedby><name>CN=Dell/O=PROMP/C=RU</name><name>CN=T-APP1-MSK/O=PROMP/C=RU</name><name>CN=Dell/O=PROMP/C=RU</name><name>CN=MSK-LotusTask/O=OTTO/C=RU</name><name>CN=Pavel A. Aleshkevich/O=OTTO/C=RU</name><name>CN=Sergey A. Tyschuk/O=OTTO/C=RU</name><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name><name>CN=Sergey A. Tyschuk/O=OTTO/C=RU</name><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name></updatedby>
+<wassignedby><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name></wassignedby>
+<item name="$TITLE" sign="true"><text>PhoneDirectory</text></item>
+<item name="$Flags"><text>s34Q</text></item>
+<item name="$PublicAccess" sign="true"><text>1</text></item>
+<item name="$DesignerVersion" sign="true"><text>8.5.3</text></item>
+<item name="$POID"><datetime>20160720T123707,51+03</datetime></item>
+
+</note>

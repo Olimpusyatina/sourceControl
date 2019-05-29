@@ -1,0 +1,182 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+Option Public
+Option Declare
+Use "DataBaseTools"
+Use "ArrayTools"
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Sub Initialize
+Declare Sub DBTUI_AppendTemplateUpdate(param As NotesDocument) 
+Declare Function DBTUI_ChooseServers(multy As Boolean) As Variant
+Declare Function DBTUI_SelectSystem(multiselection As Boolean) As Variant
+Declare Sub DBTUI_RunAgent(param As NotesDocument)
+Declare Function DBTUI_ChooseDb(returnOBject As Boolean) As Variant
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const libName = {("DataBaseTools_UI")}
+Private Const IS4SELECT_VIEWNAME = {SystemForSelect}
+Private Const SHEDULERAGENT_VIEWNAME = {ShedulerAgentsForSelect}
+Private nLine As String
+
+'++LotusScript Development Environment:2:2:Initialize:1:10
+Sub Initialize
+	nLine = Chr(10) & Chr(13)
+End Sub
+
+
+'++LotusScript Development Environment:2:2:DBTUI_AppendTemplateUpdate:1:8
+Sub DBTUI_AppendTemplateUpdate(param As NotesDocument) 
+	On Error GoTo handler
+	Const FuncName = {Function "DBTUI_AppendTemplateUpdate"}
+	Dim errStr As String
+	
+	Dim TemplateDb As NotesDatabase
+	
+	Set TemplateDb = DBTUI_ChooseDb(true)
+	
+	If TemplateDb Is Nothing Then
+		MsgBox "Не выбран шаблон для обновления.",16,Implode(Evaluate({@DbTitle}))
+		GoTo endh
+	End If
+	
+	Call DBT_AppendTemplate(TemplateDb,param)
+		
+	GoTo endh
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Sub
+
+
+'++LotusScript Development Environment:2:1:DBTUI_ChooseServers:1:8
+Function DBTUI_ChooseServers(multy As Boolean) As Variant
+	On Error GoTo handler
+	Const FuncName = {Function "DBTUI_ChooseServers"}
+	Dim errStr As String
+	
+	Dim ws As New NotesUIWorkspace
+	Dim servers As variant
+	
+	
+	servers = DBT_GetAllServers() 
+
+	If Isempty(servers) Then GoTo endh
+	'PROMPT_OKCANCELLIST (4)
+	'PROMPT_OKCANCELLISTMULT (7)
+
+	If Not  multy Then
+	'	servers = ArrayInsertElement(servers,"LOCAL",0)
+		DBTUI_ChooseServers = ws.Prompt(4, "Серверы", "Выберите сервер", servers(0), servers)
+	Else
+		DBTUI_ChooseServers = ws.Prompt(7, "Серверы", "Выберите сервер", servers(0), servers)
+	End if
+
+	GoTo endh
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBTUI_SelectSystem:1:8
+Function DBTUI_SelectSystem(multiselection As Boolean) As Variant
+	' multiselection = true return NotesDocumentCollection
+	' multiselection = false return NotesDocument
+	On Error GoTo handler
+	Const FuncName = {Function "DBTUI_SelectSystem"}
+	Dim errStr As String
+	
+	Dim ws As New NotesUIWorkspace
+	Dim res As NotesDocumentCollection 
+	Dim db As NotesDatabase
+	
+	Set DBTUI_SelectSystem = nothing
+	
+	Set db= DBT_GetDescDb()
+	
+	Set res = ws.Picklistcollection(3, multiselection, db.Server, db.Filepath, IS4SELECT_VIEWNAME, "Список ИС", "Выберите ИС")
+	If res is Nothing Then GoTo endh
+	If res.count < 1 Then GoTo endh
+	
+	If multiselection then
+		Set DBTUI_SelectSystem = res
+	Else
+		Set DBTUI_SelectSystem = res.Getfirstdocument()
+	End if
+	
+	GoTo endh
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+
+'++LotusScript Development Environment:2:2:DBTUI_RunAgent:1:8
+Sub DBTUI_RunAgent(param As NotesDocument)
+	On Error GoTo handler
+	Const FuncName = {Sub "DBTUI_RunAgent"}
+	Dim errStr As String
+	
+	Dim ws As New NotesUIWorkspace
+	Dim agDc As NotesDocumentCollection
+	Dim agDoc As NotesDocument 
+	
+	Set agDc = ws.Picklistcollection(3, false, DBT_GetDescDb().server, DBT_GetDescDb().Filepath, SHEDULERAGENT_VIEWNAME, "Список агентов", {Выберите агента},param.Getitemvalue("UNID")(0))
+	
+	If agDc Is Nothing Then GoTo endh
+	If agDc.Count < 1 Then GoTo endh
+	
+	Set agDoc = agDc.Getfirstdocument()
+	
+	Call DBT_RunAgent(agDoc)
+
+	GoTo endh
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, errStr
+endh:	
+End Sub
+
+'++LotusScript Development Environment:2:1:DBTUI_ChooseDb:1:8
+Function DBTUI_ChooseDb(returnOBject As Boolean) As Variant
+	On Error GoTo handler
+	Const FuncName = {Function "DBTUI_ChooseServers"}
+	Dim errStr As String
+	
+	Dim ws As New NotesUIWorkspace
+	Dim ses As new NotesSession
+	Dim res As Variant
+	Dim db As NotesDatabase
+	
+	DBTUI_ChooseDb = ""
+	If returnOBject Then Set DBTUI_ChooseDb = Nothing
+	
+	'PROMPT_CHOOSEDATABASE = 13
+	res = ws.Prompt(13,"Выберите БД","")
+	
+	If IsEmpty(res) Then GoTo endh
+	
+	'	0 - Server
+	'	1 - FilePath
+	'   2 - Title
+		
+	Set db = ses.getdatabase(res(0),res(1),False)
+	
+	If returnOBject Then 
+		Set DBTUI_ChooseDb = db
+		GoTo endh
+	else
+		res = ArrayInit(res)
+		res = ArrayAppendElement(res,db.ReplicaID)
+		' 3 - replicaID
+		DBTUI_ChooseDb = res
+	End If
+	
+	GoTo endh
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function

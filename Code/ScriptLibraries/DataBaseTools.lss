@@ -1,0 +1,1401 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+Option Public
+Option Declare
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Sub Initialize
+Declare Sub Terminate
+Declare Public Function DBT_GetSession As NotesSession
+Declare Function DBT_GetSystemDocByReplicaID(ReplicaID As String) As NotesDocument
+Declare Function DBT_GetDescDb() As NotesDatabase
+Declare Function DBT_GetSystemDoc(FilepathKey As String, ReplicaID As String, SearchKey As String) As NotesDocument
+Declare Function DBT_CreateMailDoc(Param As NotesDocument) As NotesDocument
+Declare Function DBT_GetAllServers() As Variant
+Declare Function DBT_SetCurrentDb (db As notesDatabase) As NotesDatabase
+Declare Function DBT_GetDbByDoc(param As Variant) As NotesDatabase
+Declare Function DBT_ReplaceDesign(Dest As NotesDatabase,Source As NotesDatabase) As Boolean
+Declare Public Sub DBT_SetActualDB (db As notesdatabase) 
+Declare Public Function DBT_GetSetting (Sname As String, Silence As Boolean) As Variant
+Declare Function DBT_GetDbBySearchKey(sKey As String) As NotesDatabase
+Declare Sub DBT_AppendTemplate(param As Variant, ParentDoc As NotesDocument)
+Declare Public Sub DBT_RunAgent(param As Variant)
+Declare Function DBT_GetDbOnServer(Server As String, db As NotesDatabase) As NotesDatabase
+Declare Public Function DBT_StartNewSession As NotesSession
+Declare Sub DBT_SignDatabaseDesign(db As Variant,ServerName As String)
+Declare Public Function DBT_GetSettingFromDb (db As NotesDatabase,Sname As String, Silence As Boolean) As Variant
+Declare Function DBT_GetDbByReplicaID(Replica As String) As NotesDatabase
+Declare Sub DBT_AccessRefreshTree(docMain As NotesDocument, EditAccessLN As Variant, ExecutorLN As Variant)
+Declare Function DBT_GetExtDocumentByUNID(sKey As String, filePath As String, Replica As String, UNID As String) As NotesDocument
+Declare Sub DBT_SetDescDb(db As NotesDatabase)
+Declare Function DBT_CreateNewReplica(server As String, db As Variant) As Boolean
+Declare Public Function DBT_GetActualDB As NotesDatabase
+Declare Function DBT_GetCurrentDb As NotesDatabase
+Declare Function DBT_GetSettingDocByDb(db As NotesDatabase, sName As String, Silence As Boolean) As NotesDocument
+Declare Function DBT_GetExtDocumentsByUNID(sKey As String, filePath As String, Replica As String, ViewName As String, UNID As String) As NotesDocumentCollection
+Declare Function DBT_GetDbByFilePath(filePath As String) As NotesDatabase
+Declare Function DBT_GetMailBox() As NotesDatabase
+Declare Function DBT_getSearchKeyByDb(db As notesdatabase) As String
+Declare Public Function getLNerror(stat As Integer) As String
+Declare Sub DBT_InitDescLib()
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+
+Private Const libName = {("DataBaseTools")}
+Private Const DBLIST_PATH = {System\descsys.nsf}
+Private Const REPLICAID_VIEWNAME = {ByReplicaID}
+Private Const SEARCHKEY_VIEWNAME = {BySearchKey}
+Private Const FILEPATH_VIEWNAME = {ByFilePath}
+Private Const MAILBOX_SEARCHKEY = {MAILBOX}
+Private Const UNIVERSAL_BYUNID_VIEWNAME = {ByUNID}
+Private DescDb As NotesDatabase
+Private nLine As String
+Private initLib As Integer 
+
+Private Const VN_AB_VIMGROUPS = "($VIMGroups)"
+Private Const IN_GROUPMEMBERS = "Members"
+
+Declare Sub OSGetDataDir Lib "nnotes.dll" Alias "OSGetDataDirectory" (ByVal DataDir As String)
+Declare Private Function W32_NSFDbOpen Lib "nnotes" Alias "NSFDbOpen" (ByVal PathName As LMBCS String,hDB As Long) As Integer
+Declare Private Function W32_NSFDbClose Lib "nnotes" Alias "NSFDbClose" (ByVal hDB As Long) As Integer
+
+Declare Function W32_DesignReplace Lib "nnotes" Alias "DesignReplace" (ByVal ht As Long, ByVal hDB As Long, ByVal dw1 As Long, ByVal dw2 As Long, ByVal dw3 As Long, ByVal dw4 As Long) As Integer
+Declare Public Function OSLoadString Lib "nnotes.dll" Alias "OSLoadString" _ 
+(ByVal hModule&, ByVal StringCode%, ByVal retBuffer As LMBCS String, BufferLength%) As Integer
+Declare Sub OSPathNetConstruct Lib "nnotes.dll" ( ByVal portName As Integer, ByVal ServerName As String, ByVal FileName As String, ByVal retPathName As String)
+
+Dim ExecuteDocReturn As NotesDocument ' документ-параметр для Execute, возвращается из Execute
+Dim ExecuteDocParam As NotesDocument ' документ-параметр для Execute, передается в Execute
+Dim ExecuteParamString As String ' строка параметр для Execute, передатеся в Execute
+Dim ExecuteParamInputVals As Variant ' параметр для Execute, передатеся в Execute, массив/строка/объект
+Dim ExecuteParamOutputVals As Variant ' параметр для Execute, возвращаеся из Execute, массив/строка/объект
+
+' Olimpus 10/2017 <<
+Private Const FIRM_KEY = "FIRMS"
+Private DBT_session As NotesSession
+Private DBT_db As NotesDatabase
+
+
+%REM
+    Description: разворачивание групп; вложенность поддерживается
+
+Class GroupExpander
+    'объект БД АК (для того, чтобы представление групп не обнулялось)
+    Private m_ndbAB As NotesDatabase
+    'представление, по которому будет производиться поиск групп
+    Private m_nvGroup As NotesView
+    'счётчик пользователей группы
+    Private m_iMember As Integer
+    
+    Sub New(ndbAB As NotesDatabase)
+        Set Me.m_ndbAB = ndbAB
+        Set Me.m_nvGroup = Me.m_ndbAB.GetView(VN_AB_VIMGROUPS)
+        Call Me.m_nvGroup.Refresh()
+    End Sub
+    
+    
+  '  %REM
+        Description: установка другой АК
+ '   %END REM
+     Public Property Set AddressBook As NotesDatabase
+         Set Me.m_ndbAB = Me.AddressBook
+    End Property
+    
+    
+ '   %REM
+        Description: получение всех пользователей группы с помощью перебора
+        Возвращаемые значения:
+            - Empty - если группа не найдена;
+            - в остальных случаях - массив
+  '  %END REM
+    Public Function ExplodeGroup(sGroupName As String) As Variant
+        Dim arrMembers() As String
+        Dim ndGroup As NotesDocument
+	    Dim arrMembersAll As Variant
+	    Dim i As Integer
+	    Dim sEntry As String
+        
+        If LSI_Info(2) <> LSI_Info(12) Then
+            Me.m_iMember = 0    'обнуляем, т.к. метод может вызываться извне несколько раз, к примеру, в цикле
+        End If
+        
+        Set ndGroup = Me.m_nvGroup.GetDocumentByKey(sGroupName)
+        If ndGroup Is Nothing Then Exit Function
+        
+        arrMembersAll = ndGroup.GetItemValue(IN_GROUPMEMBERS)
+        If Len(arrMembersAll(0)) > 0 Then
+            For i = 0 To UBound(arrMembersAll)
+                sEntry = arrMembersAll(i)
+                If InStr(sEntry, "CN=") <> 0 Then        'ускоряем, чтобы "взрывал" только группы!
+                    'это имя в системе пользователя
+                    ReDim Preserve arrMembers(Me.m_iMember)
+                    arrMembers(Me.m_iMember) = sEntry
+                    Me.m_iMember = Me.m_iMember + 1
+                Else
+                    'это группа
+                    Call Me.ExplodeGroup(sEntry)
+                End If
+            Next
+        Else
+            ReDim arrMembers(Me.m_iMember)
+        End If
+        
+        Me.ExplodeGroup = ArrayUnique(arrMembers)
+     End Function
+    
+    
+ '   %REM
+        Description: определяет, есть ли пользователь в указанной группе
+                        работает по методу перебора
+  '  %END REM
+    Public Function IsMemberUser(sGroupName As String, sUserName As String) As Boolean
+        Dim arrMembers As Variant
+        arrMembers = Me.ExplodeGroup(sGroupName)
+        If Not IsEmpty(arrMembers) Then
+            Me.IsMemberUser = Not IsNull(ArrayGetIndex(arrMembers, sUserName, 5))
+        End If
+     End Function
+    
+    
+  '  %REM
+        Description: определяет, есть ли пользователь в указанной группе
+                        работает по @ExpandNameList
+  '  %END REM
+    Public Function IsMemberUserEx(sGroupName As String, sUserName As String) As Boolean
+        Dim arrMembers As Variant
+        arrMembers = Evaluate(|@ExpandNameList("| & Me.m_ndbAB.Server & |":"| & Me.m_ndbAB.FilePath & |";"| & sGroupName & |")|)
+        Me.IsMemberUserEx = Not IsNull(ArrayGetIndex(arrMembers, sUserName, 5))
+    End Function
+    
+End Class
+%End REM 
+
+'++LotusScript Development Environment:2:2:Initialize:1:10
+Sub Initialize
+	nLine = Chr(10) & Chr(13)
+	Call DBT_InitDescLib()
+End Sub
+
+'++LotusScript Development Environment:2:2:Terminate:1:10
+Sub Terminate
+	' Olimpus 10/2017 <<
+	Set DBT_Session = Nothing
+	Set DBT_db = Nothing
+	' Olimpus >>
+End Sub
+
+'++LotusScript Development Environment:2:1:DBT_GetSession:5:8
+' DataBaseTools -> Function DBT_GetSession
+' NotesSession
+' DCS-Olympiev Oct 5, 2017 
+' *********************************************************************************
+Public Function DBT_GetSession As NotesSession
+	Const FuncName = {DBT_GetSession}
+	On Error GoTo Errh
+
+	If DBT_session Is Nothing Then
+		Set DBT_session = New notessession
+	End If
+	
+	Set DBT_GetSession = DBT_session
+
+	GoTo EndH
+ErrH:
+	Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+	Resume EndH 
+EndH:
+End Function
+
+
+
+'++LotusScript Development Environment:2:1:DBT_GetSystemDocByReplicaID:1:8
+Function DBT_GetSystemDocByReplicaID(ReplicaID As String) As NotesDocument
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetDbByReplicaID"}
+	Dim ErrStr As String
+	
+	Dim session As New NotesSession
+	Dim resDb As NotesDatabase 
+	Dim replicaview As NotesView
+	Dim sysDoc As NotesDocument
+	
+	Set DBT_GetSystemDocByReplicaID = Nothing
+	
+	If ReplicaID = "" Then GoTo endh
+	
+	Set replicaview = DescDb.getview(REPLICAID_VIEWNAME)
+	If replicaview Is Nothing Then Error 5005, "Отсутствует служебное представление:" & REPLICAID_VIEWNAME
+	
+	Set sysDoc = replicaView.Getdocumentbykey(ReplicaID, True)
+	If sysDoc Is Nothing Then Error 5005, "Не найден документ описания системы по ключу: " & ReplicaID
+	
+	Set DBT_GetSystemDocByReplicaID = SysDoc
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_GetDescDb:1:8
+Function DBT_GetDescDb() As NotesDatabase
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetDescDb"}
+	Dim errStr As String
+		
+	If DescDb Is Nothing Then
+		Dim session As New NotesSession 		
+		Set DescDb = session.Getdatabase(session.Currentdatabase.Server, DBLIST_PATH, False)
+		If DescDb Is Nothing Then Error 5001, "Не найден список систем."
+		If Not DescDb.Isopen Then Error 5002, "Список систем недоступен."
+	End If
+	
+	Set DBT_GetDescDb = DescDb
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_GetSystemDoc:1:8
+Function DBT_GetSystemDoc(FilepathKey As String, ReplicaID As String, SearchKey As String) As NotesDocument
+	' Должен быть не путым только один параметр
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetSystemDoc"}
+	Dim errStr As String
+	
+	Dim sView As NotesView
+	Dim sysDoc As NotesDocument
+	
+	Set sysDoc = Nothing
+	
+	If FilepathKey <> "" Then
+		Set sView = DescDb.Getview(FILEPATH_VIEWNAME)
+		Set sysDoc = sView.Getdocumentbykey(FilepathKey, True)
+	End If
+	
+	If ReplicaID <> "" Then
+'		Set sView = DescDb.Getview(REPLICAID_VIEWNAME)
+'		Set sysDoc = sView.Getdocumentbykey(ReplicaID, True)
+		Set sysDoc = DBT_GetSystemDocByReplicaID(Replicaid)
+	End If
+	
+	If SearchKey <> "" Then
+		Set sView = DescDb.Getview(SEARCHKEY_VIEWNAME)
+		Set sysDoc = sView.Getdocumentbykey(SearchKey, True)
+	End If
+		
+	Set DBT_GetSystemDoc = sysDoc
+	
+	GoTo endh
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_CreateMailDoc:1:8
+Function DBT_CreateMailDoc(Param As NotesDocument) As NotesDocument
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_CreateMailDoc" }
+	Dim ErrStr As String
+	
+	Static mailDb As NotesDatabase
+	Dim mdoc As NotesDocument
+	Dim s As NotesSession
+	
+	Set DBT_CreateMailDoc = Nothing 
+	
+	If mailDb Is Nothing Then
+		Set mailDb = DBT_GetMailBox()
+		If Not mailDb.isopen() Then Error 5002, {Почтовый роутер недоступен.}
+	End If
+	
+	Set mDoc = mailDb.createDocument()
+	
+	Call mDoc.Replaceitemvalue("Form", "Memo")
+	Call mDoc.Replaceitemvalue("From", "mail robot")
+	Call mDoc.Replaceitemvalue("PostedDate", Now())
+	Call mDoc.Replaceitemvalue("Principal", {mail robot/PROMP/RU})
+	Set DBT_CreateMailDoc = mDoc 
+	
+	GoTo endh
+	
+handler:
+	ErrStr = FuncName & "Error in line:" & Erl & nLine & Error$
+	Error Err,ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_GetAllServers:1:8
+Function DBT_GetAllServers() As Variant
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetAllServers"}
+	Dim errStr As String
+		
+	Dim ses As New NotesSession
+	Dim macros As String
+	Dim macros2 As String
+	Dim res As Variant
+	Dim res2 As Variant 
+	
+	DBT_GetAllServers = ""
+	
+	macros = {@DbColumn("":"NoCache";@servername:"names.nsf"; "($Servers)"; 1)}
+	macros2 = {@DbColumn("":"NoCache";@servername:"names_dcs_bs.nsf"; "($Servers)"; 1)}
+	res = Evaluate(macros)
+	res2 = Evaluate(macros2)
+	
+	If IsEmpty(res) Then Error 6200, "Ошибка получения списка серверов."
+	
+	If Not IsEmpty(res2) Then
+		ForAll x In res2
+			ReDim Preserve res(0 To UBound(res)+1)
+			res(UBound(res)) = x
+		End ForAll
+	End If
+	
+	DBT_GetAllServers = res
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_SetCurrentDb:5:8
+' DataBaseTools -> Function DBT_SetCurrentDb
+' NotesDatabase
+' DCS-Olympiev Feb 8, 2018 
+' *********************************************************************************
+Function DBT_SetCurrentDb (db As notesDatabase) As NotesDatabase
+		Const FuncName = {DBT_SetCurrentDb}
+		On Error GoTo Errh
+	
+		Set DBT_Db = db
+		Set DBT_SetCurrentDb = db
+		
+		GoTo EndH
+ErrH:
+		Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+		Resume EndH 
+EndH:
+End Function
+
+
+
+'++LotusScript Development Environment:2:1:DBT_GetDbByDoc:1:8
+Function DBT_GetDbByDoc(param As Variant) As NotesDatabase
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetDbByDoc"}
+	Dim errStr As String
+	
+	Dim session As New NotesSession
+	Dim resDb As NotesDatabase
+	
+	Set DBT_GetDbByDoc = Nothing
+	
+	If param.Getitemvalue("OpenByServers")(0) = "" Then
+		Set resDb = session.Getdatabase(session.Currentdatabase.Server, param.getitemvalue("dbInfo")(1), False)
+		If Not resDb Is Nothing Then
+			If resDb.Isopen Then
+				Set DBT_GetDbByDoc = resDb
+				GoTo endh
+			End If
+		End If	
+	End If
+	
+'	ForAll x In param.Getitemvalue("OpenByServers")
+'		Set resDb = session.Getdatabase(x, param.getitemvalue("dbinfo")(1), False)
+'		If Not resDb Is Nothing Then
+'			If resDb.Isopen Then
+'				Set DBT_GetDbByDoc = resDb
+'				GoTo endh
+'			End If
+'		End If	
+'	End ForAll
+	
+	Set resDb = New NotesDatabase ("","")
+	ForAll x In param.Getitemvalue("OpenByServers")
+		If resDb.OpenWithFailover(x, param.getitemvalue("dbInfo")(1)) Then
+			If resDb.Isopen Then
+				Set DBT_GetDbByDoc = resDb
+				GoTo endh
+			End If
+		End If	
+	End ForAll
+	
+	Set resDb = New NotesDatabase ("","")
+	ForAll x In param.Getitemvalue("OpenByServers")
+		If resDb.OpenByReplicaID(x, param.getitemvalue("dbInfo")(3)) Then
+			If resDb.Isopen Then
+				Set DBT_GetDbByDoc = resDb
+				GoTo endh
+			End If
+		End If	
+	End ForAll
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_ReplaceDesign:1:8
+Function DBT_ReplaceDesign(Dest As NotesDatabase,Source As NotesDatabase) As Boolean
+	On Error GoTo handler
+	Const FuncName = {Function "ReplaceDesign"}
+	Dim ErrStr As String
+	
+	Dim DestIcon As NotesDocument
+	Dim SourceIcon As NotesDocument 
+	Dim Dt As NotesDateTime
+	Dim st As NotesDateTime
+	
+	Dim status As Integer
+	Dim htemplate As Long
+	Dim htarget As Long
+	Dim SourceStr As String
+	Dim DestStr As String
+	
+	'FFFF0010 - ICON DB
+	
+	DBT_ReplaceDesign = False
+	
+'	Set DestIcon = dest.Getdocumentbyid("FFFF0010")
+'	Set SourceIcon = Source.Getdocumentbyid("FFFF0010")
+	
+'	Set DT = New NotesDateTime(DestIcon.Lastmodified)
+'	Set ST = New NotesDateTime(SourceIcon.Lastmodified)
+	
+'	If DT.Timedifference(ST)>=0 Then 
+'		DBT_ReplaceDesign = True
+'		GoTo endh
+'	End If
+	
+	SourceStr = Space(1024)
+	Call OSPathNetConstruct(0, Source.Server, Source.FilePath, SourceStr)
+	If SourceStr = "" GoTo endh
+
+	SourceStr = FullTrim(SourceStr)
+
+	DestStr = Space(1024)
+	Call OSPathNetConstruct(0, Dest.Server, Dest.FilePath, DestStr)
+	If DestStr = "" GoTo endh
+	
+	DestStr = FullTrim(DestStr)
+	
+	status = W32_NSFDbOpen(SourceStr, htemplate)
+	If status<>0 Then Error Err,"Не удалось открыть шаблон " & SourceStr & " - Error Code " & getLNerror(status)
+
+	
+	status = W32_NSFDbOpen(DestStr, htarget)
+	If status<>0 Then
+		Call W32_NSFDbClose(htemplate)
+		Error Err, "Не удалось открыть БД " &  DestStr & " - Error Code " & getLNerror(status)            
+'		Call W32_NSFDbClose(htemplate)
+	End If
+	
+	Call W32_DesignReplace(htemplate, htarget, 1, 0, 0, 0)    
+	Call W32_NSFDbClose(htemplate)
+	Call W32_NSFDbClose(htarget)
+	
+	DBT_ReplaceDesign = True
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:2:DBT_SetActualDB:4:8
+' DataBaseTools -> Sub DBT_SetCurrentDB
+' DCS-Olympiev Oct 5, 2017 
+' *********************************************************************************
+Public Sub DBT_SetActualDB (db As notesdatabase) 
+	Const FuncName = {DBT_SetActualDB}
+	On Error GoTo Errh
+
+	Dim dbDoc As NotesDocument
+	Dim resDb As New NotesDatabase("","")
+	Dim firmDb As NotesDatabase
+	Dim userName As New NotesName (DBT_GetSession.Username) 
+	Dim userDoc As NotesDocument
+	Dim location As String
+	Dim Server As String
+	
+	If DBT_GetSession.Isonserver Then 
+		server = DBT_GetActualDb.Server
+	Else
+		Set firmDb = DBT_GetDbBySearchKey(FIRM_KEY)
+		Set userDoc = firmDb.Getview("(byNotesAddress)").Getdocumentbykey(userName.Abbreviated)
+		Set dbDoc = DBT_GetSystemDocByReplicaID(db.Replicaid)
+			
+	End If
+	
+	Set db = resDb.OpenWithFailover(Server, dbDoc.getitemvalue("dbInfo")(1))
+	Set DBT_db = db
+
+	GoTo EndH
+ErrH:
+	Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+	Resume EndH 
+EndH:
+End Sub
+
+
+
+'++LotusScript Development Environment:2:1:DBT_GetSetting:5:8
+' DataBaseTools -> Function DBT_GetSetting
+' Variant
+' DCS-Olympiev Feb 8, 2018 
+' *********************************************************************************
+Public Function DBT_GetSetting (Sname As String, Silence As Boolean) As Variant
+	Const FuncName = {DBT_GetSetting}
+	On Error GoTo Errh
+
+	Dim setDoc As NotesDocument
+		
+	Set setDoc = DBT_GetSettingDocByDb(DBT_db, Sname, Silence)
+
+	If Not setDoc Is Nothing Then DBT_GetSetting = setDoc.Getitemvalue("Value")
+
+	GoTo EndH
+ErrH:
+	Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+	Resume EndH 
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_GetDbBySearchKey:1:8
+Function DBT_GetDbBySearchKey(sKey As String) As NotesDatabase
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetDbBySearchKey"}
+	Dim ErrStr As String
+	
+	Dim session As New NotesSession
+	Dim resDb As NotesDatabase 
+	Dim sKeyview As NotesView
+	Dim sysDoc As NotesDocument
+	
+	Set DBT_GetDbBySearchKey = Nothing
+	
+	If sKey = "" Then GoTo endh
+	
+	Set sKeyview = DBT_GetDescDb().getview(SEARCHKEY_VIEWNAME)
+	If sKeyview Is Nothing Then Error 5005, "Отсутствует служебное представление:" & SEARCHKEY_VIEWNAME
+	
+	Set sysDoc = sKeyview.Getdocumentbykey(UCase(sKey), True)
+	If sysDoc Is Nothing Then Error 5005, "Не найден документ описания системы по ключу: " & UCase(sKey)
+	
+	Set resDb = New NotesDatabase ("","")
+	If resDb.OpenByReplicaID(session.Currentdatabase.Server, sysdoc.getitemvalue("dbInfo")(3)) Then
+		If resDb.Isopen Then
+			Set DBT_GetDbBySearchKey = resDb
+			GoTo endh
+		End If
+	End If	
+	
+	If Len(sysdoc.Getitemvalue("AvailableByServers")(0)) > 0 Then
+	Set resDb = New NotesDatabase ("","")
+		ForAll x In sysdoc.Getitemvalue("AvailableByServers")
+			If resDb.OpenByReplicaID(x, sysdoc.getitemvalue("dbInfo")(3)) Then
+				If resDb.Isopen Then
+					Set DBT_GetDbBySearchKey = resDb
+					GoTo endh
+				End If
+			End If	
+		End ForAll
+	End If
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:	
+End Function
+
+'++LotusScript Development Environment:2:2:DBT_AppendTemplate:2:8
+
+Sub DBT_AppendTemplate(param As Variant, ParentDoc As NotesDocument)
+	On Error GoTo handler
+	Const FuncName = {Sub "DBT_AppendTemplate"}
+	Dim ErrStr As String
+	
+	Dim ses As New NotesSession
+	
+	Dim db As NotesDatabase
+	Dim cdb As NotesDatabase
+	Dim templateDb As NotesDatabase
+	Dim templdoc As NotesDocument
+	Dim rti As NotesRichTextItem
+	Dim fPath As String
+	Dim file As String
+	Dim dataDir As String 
+	Dim i As Long
+	Dim backup As Boolean
+
+	Select Case TypeName(param)
+	
+		Case "NOTESDOCUMENT":
+			Set cdb = param.ParentDatabase
+			Set db = DBT_GetDbByDoc(param) 
+			backup = True
+		Case "NOTESDATABASE":
+			Set db = param
+		Case Else:
+		Error 6500, "Неверный параметр."
+	End Select
+	
+	fPath = StrLeftBack(db.Filepath,".")
+	If InStr(fPath, {\}) Then fPath = StrRightBack(fPath,{\})
+	 
+	Set templateDb = db.Createcopy("",fPath & ".ntf")
+
+	Call templateDb.Grantaccess(ses.Username, 6)
+	
+	Set templdoc = ses.Currentdatabase.Createdocument()
+	Call templdoc.Computewithform(False, False)
+	
+	Call templdoc.replaceItemvalue("Form","Template")
+	Set rti = New NotesRichTextItem(templdoc,"Body")
+	
+	Call rti.embedobject(EMBED_ATTACHMENT,"", templateDb.Filepath)
+
+	Call templdoc.Replaceitemvalue("MainDocUNID", ParentDoc.Universalid)
+	If backup Then
+		Call templdoc.Replaceitemvalue("TemplateName",{BackUP дизайна. } & db.Title & " - " & Today)
+		Call templdoc.Replaceitemvalue("refreshStatus", "1")
+	Else
+		Call templdoc.Replaceitemvalue("TemplateName",{Шаблон обновления. } & db.Title & " - " & Today)
+		Call templdoc.Replaceitemvalue("refreshStatus", "-1")
+	End If
+		
+	Call templdoc.Replaceitemvalue("CreateDate", "" & Today)
+	Call templDoc.Makeresponse(ParentDoc)
+	Call templdoc.Save(True,templdoc.Isresponse)
+	
+	Delete ses
+			
+	Call templateDb.Remove()
+		
+	GoTo endh
+	
+handler:
+	Delete ses
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Sub
+
+'++LotusScript Development Environment:2:2:DBT_RunAgent:1:8
+Public Sub DBT_RunAgent(param As Variant)
+	On Error GoTo handler
+	Const FuncName = {Sub "DBT_RunAgent"}
+	Dim ErrStr As String
+	
+	Dim ses As New NotesSession
+	Dim DestDb As NotesDatabase
+	Dim Agent As NotesAgent
+	Dim agentName As String
+	Dim ConCmd As String
+
+	Select Case TypeName(param)
+		Case "NOTESDOCUMENT":
+			Set Destdb = DBT_GetDbByDoc(DBT_GetDescDb.Getdocumentbyunid(param.getitemvalue("MainDocUNID")(0)))
+			agentName=param.getitemvalue("AgentName")(0)
+		Case "STRING":
+			Set destdb = ses.Currentdatabase
+			agentName = param
+		Case Else:
+			GoTo endh
+	End Select
+
+	If Not DestDb.Isopen Then Error 5003, "Невозможно открыть базу: " & DestDb.Title
+
+	Set Agent = destDb.Getagent(agentName)
+
+	If Agent Is Nothing Then Error 5003, "Не найден агент: " & agentName & " в базе " & destDb.Title
+
+	ConCmd = {Tell AMGR RUN "} & DestDb.Filepath & {" '} & agentName & {'} 
+	Call ses.Sendconsolecommand(DestDb.Server, ConCmd)
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Sub
+
+'++LotusScript Development Environment:2:1:DBT_GetDbOnServer:1:8
+Function DBT_GetDbOnServer(Server As String, db As NotesDatabase) As NotesDatabase
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetDbOnServer"}
+	Dim errStr As String
+	
+	Dim resDb As NotesDatabase
+	
+	If server = db.Server Then
+		Set DBT_GetDbOnServer = db
+		GoTo endh
+	End If
+	
+	Set resDb = New NotesDatabase ("","")
+	
+'	If resDb.OpenWithFailover(Server, db.filepath) Then
+'		If resDb.Isopen Then
+'			Set DBT_GetDbOnServer = resDb
+'			GoTo endh
+'		End If
+'	End If	
+		
+	Set resDb = New NotesDatabase ("","")
+	If resDb.OpenByReplicaID(Server, db.replicaid) Then
+		If resDb.Isopen Then
+			Set DBT_GetDbOnServer = resDb
+			GoTo endh
+		End If
+	End If	
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_StartNewSession:5:8
+' DataBaseTools -> Function DBT_StartNewSession
+' NotesSession
+' DCS-Olympiev Oct 5, 2017 
+' *********************************************************************************
+Public Function DBT_StartNewSession As NotesSession
+	Const FuncName = {DBT_StartNewSession}
+	On Error GoTo Errh
+
+	Set DBT_Session = Nothing
+	Set DBT_Session = New NotesSession
+	Set DBT_StartNewSession = DBT_Session
+
+	GoTo EndH
+ErrH:
+	Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+	Resume EndH 
+EndH:
+End Function
+
+
+
+
+'++LotusScript Development Environment:2:2:DBT_SignDatabaseDesign:1:8
+Sub DBT_SignDatabaseDesign(db As Variant,ServerName As String)
+	On Error GoTo handler
+	Const FuncName = {Sub "DBT_SignDatabaseDesign"}
+	Dim ErrStr As String
+	
+	Dim Db4Sign As NotesDatabase
+	
+	Dim session As New NotesSession
+	Dim adminp As NotesAdministrationProcess
+	Dim noteid As String
+	Dim destServer As String
+	
+	Select Case TypeName(db)
+		Case "NOTESDATABASE":
+			Set Db4Sign = db
+		Case "NOTESDOCUMENT":
+			Set Db4Sign = DBT_GetDbByDoc(db)
+		Case "STRING":
+			If db <> "" Then 
+				If InStr(LCase(db),"nsf") > 0 Then
+					' FilePath
+					Set Db4Sign = DBT_GetDbByFilePath("" & db)
+				ElseIf Len(db) = 16 Then
+					' ReplicaID
+					Set Db4Sign = DBT_GetDbByReplicaID("" & db)
+				Else 
+					' Ключ поиска
+					Set Db4Sign = DBT_GetDbBySearchKey("" & db)
+				End If
+			Else
+				Error 6500, "Неизвестный(пустой) параметр, db: " & db
+			End If
+		Case Else:
+			Error 6500, "Неверный параметр, тип: " & TypeName(db) 
+	End Select
+	
+	If Db4Sign Is Nothing Then Error 5001, "Не получена ИC для подписи"
+	
+	If destServer = "" Or LCase(destServer) = "local" Then 
+		destServer = Db4Sign.Server
+	Else
+		Set Db4Sign = DBT_GetDbOnServer(ServerName,Db4Sign)
+	End If
+	
+	If Db4Sign Is Nothing Then Error 5001, "Не получена ИC для подписи на сервере: " & destServer
+	
+	Set adminp = session.CreateAdministrationProcess(destServer)
+	
+	noteid = adminp.SignDatabaseWithServerID(destServer,Db4Sign.Filepath)
+	
+	If noteid = "" Then Error 7001, "ошибка при создании AdminProcess. Сервер: " & destServer
+
+	GoTo endh
+	
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Sub
+
+'++LotusScript Development Environment:2:1:DBT_GetSettingFromDb:6:8
+
+' DataBaseTools -> Function DBT_GetSettingFromDb
+' Variant
+' DCS-Olympiev Feb 8, 2018 
+' *********************************************************************************
+Public Function DBT_GetSettingFromDb (db As NotesDatabase,Sname As String, Silence As Boolean) As Variant
+	Const FuncName = {DBT_GetSettingFromDb}
+	On Error GoTo Errh
+
+	Dim setDoc As NotesDocument
+		
+	Set setDoc = DBT_GetSettingDocByDb(db, Sname, Silence)
+	If Not setDoc Is Nothing Then DBT_GetSettingFromDb = setDoc.Getitemvalue("Value")
+
+	GoTo EndH
+ErrH:
+	Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+	Resume EndH 
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_GetDbByReplicaID:1:8
+Function DBT_GetDbByReplicaID(Replica As String) As NotesDatabase
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetDbByReplicaID"}
+	Dim ErrStr As String
+	
+	Dim session As New NotesSession
+	Dim resDb As NotesDatabase 
+	Dim replicaview As NotesView
+	Dim sysDoc As NotesDocument
+	
+	Set DBT_GetDbByReplicaID = Nothing
+	
+	If Replica = "" Then GoTo endh
+	
+	Set replicaview = DescDb.getview(REPLICAID_VIEWNAME)
+	If replicaview Is Nothing Then Error 5005, "Отсутствует служебное представление:" & REPLICAID_VIEWNAME
+	
+	Set sysDoc = replicaView.Getdocumentbykey(Replica, True)
+	If sysDoc Is Nothing Then Error 5005, "Не найден документ описания системы по ключу: " & Replica
+	
+	If sysdoc.Getitemvalue("OpenByServers")(0) = "" Then
+		Set resDb = session.Getdatabase(session.Currentdatabase.Server, sysdoc.getitemvalue("dbInfo")(1), False)
+		If Not resDb Is Nothing Then
+			If resDb.Isopen Then
+				Set DBT_GetDbByReplicaID = resDb
+				GoTo endh
+			End If
+		End If	
+	End If
+	
+'	ForAll x In sysdoc.Getitemvalue("OpenByServers")
+'		Set resDb = session.Getdatabase(x, sysdoc.getitemvalue("dbInfo")(1), false)
+'		If Not resDb Is Nothing Then
+'			If resDb.Isopen Then
+'				Set DBT_GetDbByReplicaID = resDb
+'				Delete session
+'				GoTo endh
+'			End If
+'		End If	
+'	End forall
+	
+	Set resDb = New NotesDatabase ("","")
+	ForAll x In sysdoc.Getitemvalue("OpenByServers")
+		If resDb.OpenWithFailover(x, sysdoc.getitemvalue("dbInfo")(1)) Then
+			If resDb.Isopen Then
+				Set DBT_GetDbByReplicaID = resDb
+				GoTo endh
+			End If
+		End If	
+	End ForAll
+	
+	Set resDb = New NotesDatabase ("","")
+	ForAll x In sysdoc.Getitemvalue("OpenByServers")
+		If resDb.OpenByReplicaID(x, sysdoc.getitemvalue("dbInfo")(3)) Then
+			If resDb.Isopen Then
+				Set DBT_GetDbByReplicaID = resDb
+				GoTo endh
+			End If
+		End If	
+	End ForAll
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:2:DBT_AccessRefreshTree:5:8
+%REM
+	Sub DBT_AccessRefreshTree
+	Description: Comments for Sub
+%END REM
+Sub DBT_AccessRefreshTree(docMain As NotesDocument, EditAccessLN As Variant, ExecutorLN As Variant)
+	
+	Dim col As NotesDocumentCollection
+	Dim docRes As NotesDocument
+	
+	If Not IsArray(EditAccessLN) Then 
+		If EditAccessLN="" Then 
+			EditAccessLN = Evaluate({@Trim(@Unique(EditAccessLN:Performer_4))}, docMain)
+		End If
+	End If
+	If Not IsArray(ExecutorLN) Then 
+		If ExecutorLN="" Then
+			ExecutorLN = Evaluate({@Trim(@Unique(ExecutorLN:Performer))}, docMain)
+		End If
+	End If
+	
+	Set col = docMain.Responses
+	Set docRes = col.Getfirstdocument()
+	While Not docRes Is Nothing
+		
+		docRes.Replaceitemvalue("EditAccessLN", EditAccessLN).Isauthors = True
+		docRes.Replaceitemvalue("Performer", ExecutorLN).Isauthors = True
+		docRes.Replaceitemvalue("Readers", docMain.Readers).Isreaders = True
+		Call docRes.save(false, false)
+		Call DBT_AccessRefreshTree(docRes, EditAccessLN, ExecutorLN)
+		
+		Set docRes = col.Getnextdocument(docRes)
+	Wend
+	
+End Sub
+
+'++LotusScript Development Environment:2:1:DBT_GetExtDocumentByUNID:1:8
+Function DBT_GetExtDocumentByUNID(sKey As String, filePath As String, Replica As String, UNID As String) As NotesDocument
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetExtDocumentByUNID"}
+	Dim errStr As String
+	
+	Static extDb As NotesDatabase
+	Dim extView As NotesView
+	Dim extDoc As NotesDocument
+	
+	Set DBT_GetExtDocumentByUNID = Nothing
+		
+	If Len(UNID) <> 32 Then Exit Function  
+	
+	If extDb Is Nothing Then
+		Set extDb = DBT_GetDbBySearchKey(sKey)
+	End If
+	
+	If extDb Is Nothing Then
+		Set extDb = DBT_GetDbByFilePath(filePath)
+	End If
+	
+	If extDb Is Nothing Then
+		Set extDb = DBT_GetDbByReplicaID(Replica)
+	End If
+	
+	If extDb Is Nothing Then Error 5500, {Не найдена база по ключам: } & skey & nLine & filePath & nLIne & Replica
+	
+	Set extView = extDb.Getview(UNIVERSAL_BYUNID_VIEWNAME)
+	
+	If extView Is Nothing Then
+		On Error Resume Next
+		Set extDoc = extDb.Getdocumentbyunid(UNID)
+		On Error GoTo handler
+	Else
+		Set extDoc = extView.Getdocumentbykey(UNID,True)
+	End If
+		
+	Set DBT_GetExtDocumentByUNID = ExtDoc
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+
+
+'++LotusScript Development Environment:2:2:DBT_SetDescDb:1:8
+Sub DBT_SetDescDb(db As NotesDatabase)
+	On Error GoTo handler
+	Const FuncName = {Sub "DBT_SetDescDb"}
+	Dim ErrStr As String
+	
+	Set DescDb = db
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Sub
+
+'++LotusScript Development Environment:2:1:DBT_CreateNewReplica:1:8
+Function DBT_CreateNewReplica(server As String, db As Variant) As Boolean
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_CreateNewReplica"}
+	Dim ErrStr As String
+	
+	Dim Db4Repl As NotesDatabase
+	Dim tmpDb As NotesDatabase
+	Dim replica As NotesDatabase
+	Dim destServer As String
+	
+	DBT_CreateNewReplica = False
+	
+	Select Case TypeName(db)
+		Case "NOTESDATABASE":
+			Set Db4Repl = db
+		Case "NOTESDOCUMENT":
+			Set Db4Repl = DBT_GetDbByDoc(db)
+		Case "STRING":
+			If db <> "" Then 
+				If InStr(LCase(db),"nsf") > 0 Then
+					' FilePath
+					Set Db4Repl = DBT_GetDbByFilePath("" & db)
+				ElseIf Len(db) = 16 Then
+					' ReplicaID
+					Set Db4Repl = DBT_GetDbByReplicaID("" & db)
+				Else 
+					' Ключ поиска
+					Set Db4Repl = DBT_GetDbBySearchKey("" & db)
+				End If
+			Else
+				Error 6500, "Неизвестный(пустой) параметр, db: " & db
+			End If
+		Case Else:
+			Error 6500, "Неверный параметр, тип: " & TypeName(db) 
+	End Select
+	
+	If Db4Repl Is Nothing Then Error 5001, "Не получена ИC для создания реплики"
+
+	If LCase(server) = "local" Then server = ""
+
+	On Error Resume Next
+	Set tmpDb = DBT_GetDbOnServer(server,Db4Repl)
+	On Error GoTo handler
+	
+	If Not tmpDb Is Nothing Then 
+		MsgBox "На указанном сервере уже существует реплика.",16,Implode(Evaluate({@DbTitle}))
+		GoTo endh
+	End If
+			
+	Set replica = Db4Repl.Createreplica(Server, Db4Repl.Filepath)
+	If replica Is Nothing Then Error 7002, "Ошибка при создании реплики на сервере: " & Server
+	
+	DBT_CreateNewReplica = True
+
+	GoTo endh
+	
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+
+
+
+
+
+
+
+
+
+'++LotusScript Development Environment:2:1:DBT_GetActualDB:5:8
+' DataBaseTools -> Function DBT_GetCurrentDB
+' NotesDatabase
+' DCS-Olympiev Oct 5, 2017 
+' *********************************************************************************
+Public Function DBT_GetActualDB As NotesDatabase
+	Const FuncName = {DBT_GetCurrentDB}
+	On Error GoTo Errh
+
+	If DBT_db Is Nothing Then Set DBT_db = DBT_GetSession.Currentdatabase 
+	
+	Set DBT_GetActualDB = DBT_db
+
+	GoTo EndH
+ErrH:
+	Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+	Resume EndH 
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_GetCurrentDb:5:8
+' DataBaseTools -> Function DBT_GetCurrentDb
+' NotesDatabase
+' DCS-Olympiev Feb 8, 2018 
+' *********************************************************************************
+Function DBT_GetCurrentDb As NotesDatabase
+		Const FuncName = {DBT_GetCurrentDb}
+		On Error GoTo Errh
+		
+		Dim s As New notessession
+		
+		If DBT_Db Is Nothing Then
+			Set DBT_Db = s.Currentdatabase
+		End If
+
+		Set DBT_GetCurrentDb = DBT_Db
+
+		GoTo EndH
+ErrH:
+		Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+		Resume EndH 
+EndH:
+End Function
+
+
+
+'++LotusScript Development Environment:2:1:DBT_GetSettingDocByDb:1:8
+Function DBT_GetSettingDocByDb(db As NotesDatabase, sName As String, Silence As Boolean) As NotesDocument
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetSettingDocByDb"}
+	Dim errStr As String
+	
+	Dim sView As NotesView
+	Dim sDoc As NotesDocument
+	Dim sKey(1) As String
+	
+	Set sView = DBT_GetDescDb().Getview("SettingsByDb")
+	
+	sKey(0) = db.Replicaid
+	sKey(1) = sName
+	
+	Set sDoc = sView.Getdocumentbykey(sKey, True)
+	
+	If sDoc Is Nothing Then
+		If Not Silence Then 
+			Error 5010, {Не найден документ настройки для } & db.Title & nLine & {Настройка: } & sName
+		End If
+	End If
+	
+	Set DBT_GetSettingDocByDb = sDoc
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_GetExtDocumentsByUNID:1:8
+Function DBT_GetExtDocumentsByUNID(sKey As String, filePath As String, Replica As String, ViewName As String, UNID As String) As NotesDocumentCollection
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetExtDocumentByUNID"}
+	Dim errStr As String
+	
+	Static extDb As NotesDatabase
+	Dim extView As NotesView
+	Dim extDocColl As NotesDocumentCollection
+	
+	Set DBT_GetExtDocumentsByUNID = Nothing
+		
+	If Len(UNID) <> 32 Then Exit Function  
+	
+	If extDb Is Nothing Then
+		Set extDb = DBT_GetDbBySearchKey(sKey)
+	End If
+	
+	If extDb Is Nothing Then
+		Set extDb = DBT_GetDbByFilePath(filePath)
+	End If
+	
+	If extDb Is Nothing Then
+		Set extDb = DBT_GetDbByReplicaID(Replica)
+	End If
+	
+	If extDb Is Nothing Then Error 5500, {Не найдена база по ключам: } & skey & nLine & filePath & nLIne & Replica
+	
+	Set extDocColl = extDb.Getprofiledoccollection("EMPTY")
+	
+	Set DBT_GetExtDocumentsByUNID = extDocColl
+	
+	Set extView = extDb.Getview(ViewName)
+		
+	If extView Is Nothing Then Error 5200, {Не найдено представление: } & ViewName
+
+	Set extDocColl = extView.Getalldocumentsbykey(UNID, True)
+		
+	Set DBT_GetExtDocumentsByUNID = extDocColl
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_GetDbByFilePath:2:8
+
+Function DBT_GetDbByFilePath(filePath As String) As NotesDatabase
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetDbByFilePath"}
+	Dim ErrStr As String
+	
+	Dim session As New NotesSession
+	Dim resDb As NotesDatabase 
+	Dim filePathview As NotesView
+	Dim sysDoc As NotesDocument
+	
+	Set DBT_GetDbByFilePath = Nothing
+	
+	If filePath = "" Then GoTo endh
+	
+	Set filePathview = DescDb.getview(FILEPATH_VIEWNAME)
+	If filePathview Is Nothing Then Error 5005, "Отсутствует служебное представление:" & FILEPATH_VIEWNAME
+	
+	Set sysDoc = filePathview.Getdocumentbykey(UCase(filePath), True)
+	If sysDoc Is Nothing Then Error 5005, "Не найден документ описания системы по ключу: " & UCase(filePath)
+	
+	If sysdoc.Getitemvalue("OpenByServers")(0) = "" Then
+		Set resDb = session.Getdatabase(session.Currentdatabase.Server, sysdoc.getitemvalue("dbInfo")(1), False)
+		If Not resDb Is Nothing Then
+			If resDb.Isopen Then
+				Set DBT_GetDbByFilePath = resDb
+				GoTo endh
+			End If
+		End If	
+	End If
+	
+'	ForAll x In sysdoc.Getitemvalue("OpenByServers")
+'		Set resDb = session.Getdatabase(x, sysdoc.getitemvalue("dbInfo")(1), False)
+'		If Not resDb Is Nothing Then
+'			If resDb.Isopen Then
+'				Set DBT_GetDbByFilePath = resDb
+'				Delete session
+'				GoTo endh
+'			End If
+'		End If	
+'	End ForAll
+	
+	Set resDb = New NotesDatabase ("","")
+	ForAll x In sysdoc.Getitemvalue("OpenByServers")
+		If resDb.OpenWithFailover(x, sysdoc.getitemvalue("dbInfo")(1)) Then
+			If resDb.Isopen Then
+				Set DBT_GetDbByFilePath = resDb
+				GoTo endh
+			End If
+		End If	
+	End ForAll
+	
+	Set resDb = New NotesDatabase ("","")
+	ForAll x In sysdoc.Getitemvalue("OpenByServers")
+		If resDb.OpenByReplicaID(x, sysdoc.getitemvalue("dbInfo")(3)) Then
+			If resDb.Isopen Then
+				Set DBT_GetDbByFilePath = resDb
+				GoTo endh
+			End If
+		End If	
+	End ForAll
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_GetMailBox:1:8
+Function DBT_GetMailBox() As NotesDatabase
+	On Error GoTo handler
+	Const FuncName = {Function "DBT_GetMailBox"}
+	Dim errStr As String
+	
+	Dim ses As New NotesSession
+	Static mDb As NotesDatabase
+	
+	Set mDb = ses.getdatabase(ses.currentdatabase.server,"Mail.Box", False)
+	
+'	Set mailDb = ses.getdatabase(db.server,"Mail.Box", False)
+	
+	'(sys.getCurrentDb().Server, "Mail.Box", False)
+	
+	If mDb Is Nothing Then Error 5001, "Не найдена почтовая база."
+	If Not mDb.Isopen Then Error 5002, "Почтовая база недоступна."
+	
+'	If mDb Is Nothing Then
+'		Set mDb = DBT_GetDbByFilePath("mail1.box")
+'	End If
+	
+	Set DBT_GetMailBox = mDb
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:DBT_getSearchKeyByDb:5:8
+' Library DataBaseTools -> Function DBT_GetSearchKeyByDB
+' String
+' DCS-Olympiev Oct 13, 2018
+' *********************************************************************************
+Function DBT_getSearchKeyByDb(db As notesdatabase) As String
+	Const FuncName = {DBT_getSearchKeyByDb}
+	On Error GoTo ErrH
+
+	Dim sysDoc As NotesDocument
+	Set sysDoc = DBT_GetSystemDoc(db.Filepath, db.Replicaid, "")
+	If sysDoc Is Nothing Then Set sysDoc = DBT_GetSystemDoc(db.Filepath, "", "")
+	
+	DBT_getSearchKeyByDb = sysDoc.Getitemvalue("SearchKey")(0)
+	
+	GoTo EndH
+ErrH:
+	Error Err, funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:getLNerror:1:8
+Public Function getLNerror(stat As Integer) As String
+    Dim s$
+    s$=String$(500," ") ' должно хватить
+    
+    Dim i%
+    i%=OSLoadString(0,stat%,s$,500)
+    If i%=0 Then
+        getLNerror="Error description not found. Code: """+Cstr(stat%)+"""."
+    Else
+        getLNerror=Left$(s$,i%)
+    End If
+End Function
+
+
+
+'++LotusScript Development Environment:2:2:DBT_InitDescLib:1:8
+Sub DBT_InitDescLib()
+	
+	If initLib <> 1 Then
+		Call DBT_GetDescDb()
+		
+		' Olimpus 10/2017 <<
+		Set DBT_Session = New NotesSession
+		Set DBT_db = DBT_Session.Currentdatabase
+		' Olimpus >>
+		
+		initLib = 1
+	End If
+	
+End Sub

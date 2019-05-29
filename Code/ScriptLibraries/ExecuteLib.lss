@@ -1,0 +1,270 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+%REM
+	Library ExecuteLib
+	Created Oct 16, 2018 by Alexandr S. Olympiev/OTTO/RU
+	Description: Comments for Library
+%END REM
+Option Public
+Option Declare
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Sub Initialize
+Declare Private Function getArgumentsString (arguments As Variant) As String
+Declare Private Sub getTypedArgument(arguments As Variant, i As integer)
+Declare Function ExecScript (script As String, param As Variant) As Boolean
+Declare Function runFunction (libName As String, functionName As String, arguments As Variant, returnType As Integer) As Variant
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const DesignElem = {ExecuteLib}
+Private nLine As String
+
+Public executeReturnValue As Variant
+Public executeParameter As Variant
+Public executeReturnResult As Boolean
+
+Public executeArgument As Variant
+Public executeArgument1 As Variant
+Public executeParameter1 As Variant
+Public executeReturnResult1 As Boolean
+Public executeCounter As Long
+'Public executeArgumentInt As Integer
+'Public executeArgumentLng As Long
+'Public executeArgumentSng As Single
+'Public executeArgumentDbl As Double
+'Public executeArgumentCur As Currency
+'Public executeArgumentDate As Variant
+'Public executeArgumentStr As String
+'Public executeArgumentBool As Boolean
+'Public executeArgumentByte As Byte
+
+'++LotusScript Development Environment:2:2:Initialize:2:10
+
+Sub Initialize
+	Const FuncName = {Initialize}
+	On Error GoTo ErrH
+	nLine = Chr(10) & Chr(13)
+
+
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Sub
+
+
+'++LotusScript Development Environment:2:1:getArgumentsString:7:8
+' Library ExecuteLib -> Function getArgumentsString
+' String
+' На вызоде стринга для вставки в функцию
+' в теле заполнение всех глобальных входных параметров
+' DCS-Olympiev Oct 17, 2018
+' *********************************************************************************
+Private Function getArgumentsString (arguments As Variant) As String
+	Const FuncName = {getArgumentsString}
+	On Error GoTo ErrH
+
+	Dim args As String
+	Dim i As Integer
+	Dim argsArr As Variant
+	
+	If IsArray(arguments) Then
+		ReDim executeArgument(LBound(arguments) To UBound(arguments))
+		argsArr = arguments
+	Else
+		ReDim executeArgument(0)
+		ReDim argsArr (0)
+		If IsObject(arguments) Then
+			Set argsArr(0) = arguments
+		Else
+			argsArr(0) = arguments			
+		End If
+
+	End If 
+	
+	For i = LBound(executeArgument) To UBound(executeArgument)
+		Call getTypedArgument(argsArr(i), i)
+		args = args & "executeArgument(" & i & "), "
+	Next
+	args = StrLeftBack(args,",")
+	
+'	If IsObject(arguments) Then
+'		Set executeArgument = arguments
+'		args = "executeArgument"		
+'	ElseIf IsArray(arguments) Then
+''		executeArgument = arguments
+'		ReDim executeArgument(LBound(arguments) To UBound(arguments))
+'		For i = LBound(arguments) To UBound (arguments)
+'			Call getTypedArgument(arguments(i), i)
+''			If isObject(arguments(i)) Then
+''				Set executeArgument(i) = arguments(i)
+''			Else
+''				executeArgument(i) = arguments(i)
+''			End If
+'			args = args & "executeArgument(" & i & "), "
+'		Next
+'		args = StrLeftBack(args,",")
+'	ElseIf arguments <> "" Then
+'		ReDim executeArgument(0)
+'		Call getTypedArgument(arguments, 0)
+'		args = "executeArgument(0)"
+'	Else
+'		args = ""
+'	End If
+
+	getArgumentsString = args
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+
+'++LotusScript Development Environment:2:2:getTypedArgument:5:8
+' Library ExecuteLib -> Sub getTypedArgument
+' 
+' DCS-Olympiev Oct 17, 2018
+' *********************************************************************************
+Private Sub getTypedArgument(arguments As Variant, i As integer)
+	Const FuncName = {getTypedArgument}
+	On Error GoTo ErrH
+
+	Select Case DataType(arguments)
+		Case 2
+			executeArgument(i) = CInt(arguments)
+		Case 3
+			executeArgument(i) = CLng(arguments)
+		Case 4
+			executeArgument(i) = CSng(arguments)
+		Case 5
+			executeArgument(i) = CDbl(arguments)
+		Case 6
+			executeArgument(i) = CCur(arguments)
+		Case 7
+			executeArgument(i) = DateValue(arguments)
+		Case 8							
+			executeArgument(i) = CStr(arguments)
+		Case 11
+			executeArgument(i) = CBool(arguments)
+		Case 17
+			executeArgument(i) = CByte(arguments)
+		Case Else 
+			If IsObject(arguments) Then
+				Set executeArgument(i) = arguments
+			Else
+				executeArgument(i) = arguments
+			End If	
+	End Select
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Sub
+
+
+'++LotusScript Development Environment:2:1:ExecScript:5:8
+' Library ExecuteLib -> Function ExecScript
+' Boolean
+' DCS-Olympiev Oct 31, 2018
+' *********************************************************************************
+Function ExecScript (script As String, param As Variant) As Boolean
+	Const FuncName = {ExecScript}
+	On Error GoTo ErrH
+	
+	Set executeParameter = param
+	executeReturnResult = False
+	stop
+	Execute(script)
+	
+	ExecScript = executeReturnResult
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+
+'++LotusScript Development Environment:2:1:runFunction:10:8
+' Library ExecuteLib -> Function runFunction
+' Variant
+' DCS-Olympiev Oct 16, 2018
+' Типы возвращаемых параметров:
+' 0- Выполнить как саб
+' 1 - Возвращает простой тип данных
+' 2 - Ссылку на новый объект
+' 3 - Объект
+' *********************************************************************************
+Function runFunction (libName As String, functionName As String, arguments As Variant, returnType As Integer) As Variant
+	Const FuncName = {runFunction}
+	On Error GoTo ErrH
+	
+	If libName = "" Then Error 5012, "Имя библиотеки не может быть пустым"
+	If functionName = "" Then Error 5012, "Имя функции не может быть пустым"
+	If returnType > 3 Or returnType < 0 Then Error 5012, "Тип возвращаемого значения должен быть от 1 до 4"
+	
+	Dim execString As String
+	Dim args As String
+		
+	args = getArgumentsString(arguments)
+	
+	execString = |Option Public
+Option Declare
+Use "| & libName & |"
+
+Sub RunMe
+On Error Goto ErrH
+Const execfuncName = "Executing function | & functionName & | from library | & libName & |"
+|
+	
+	Select Case returnType
+		Case 0
+			execString = execString & |
+Call | & functionName & |(| & args & |)|
+		Case 1
+			execString = execString & |
+executeReturnValue = | & functionName & |(| & args & |)|
+		Case 2
+			execString = execString & |
+Set executeReturnValue = New | & functionName & |(| & args & |)|
+		Case 3
+			execString = execString & |
+Set executeReturnValue = | & functionName & |(| & args & |)|
+	End Select
+
+	execString = execString & |
+
+Goto EndH
+ErrH:
+Error Err, execfuncName & ", c. " & CStr(ErL) & Chr(10) & Chr(13) & Error$
+	Resume EndH
+EndH:
+End Sub
+
+Call RunMe|
+
+	Execute(execString)
+
+	Select Case returnType
+		Case 0 
+			runFunction = True
+		Case 1
+			runFunction = executeReturnValue
+		Case 2,3
+			Set runFunction = executeReturnValue
+	End Select
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+

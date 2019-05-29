@@ -1,0 +1,1362 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+%REM
+	Library DelegationLib
+	Created Jan 17, 2019 by Alexandr S. Olympiev/OTTO/RU
+	Description: Comments for Library
+%END REM
+Option Public
+Option Declare
+
+Use "DocumentCollection"
+Use "A1_Setup"
+Use "DatabaseTools"
+Use "DocumentLinkLib"
+Use "AppRefObjects"
+
+
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Class delegation As Interface
+Declare Class Substituents As Interface
+Declare Sub Initialize
+Declare Function DL_updateDelegationCardFromFirmDoc (dDoc As NotesDocument, fDoc As NotesDocument) As Boolean
+Declare Function DL_getEngNameByFirmDoc (fDoc As NotesDocument) As String
+Declare Function DL_getDelegationDocByPersonUNID (unid As String) As NotesDocument
+Declare Function DL_createDelegationCardFromFirmDoc (fDoc As NotesDocument) As NotesDocument
+Declare Function DL_getDb As NotesDatabase
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const DesignElem = {DelegationLib}
+Private Const DB_SEARCHKEY = "DELEGATION"
+
+Private Const APP_PERS_RUS = "appSubPersRus"
+Private Const APP_PERS_ENG = "appSubPersEng"
+Private Const APP_PERS = "appSubPers"
+Private Const APP_PERS_UNID = "appSubPersUNID"
+Private Const APP_PERS_LN = "appSubPersLN"
+Private Const APP_PERS_FRUNID = "appSubPersFRUNID"
+Private Const APP_PERS_CATUNID = "appSubPersCatUNID"
+Private Const APP_PERS_COMPUNID = "appSubPersCompUNID"
+
+Private Const DCS_PERS = "person_dcs"
+Private Const BS_PERS = "person_bs"
+Private Const PS_PERS = "person_ps"
+Private Const NK_PERS = "person_nk"
+Private Const ESOL_PERS = "person_esol"
+Private Const ALL_PERS = "person_all"
+
+Private Const DCS_UNID = "1611F7558649288EC32571FE0021A81F"'"3CAA475B701E9E11442579CD003E8922"
+Private Const BS_UNID = "475430E73DAC5165C325721200293FC9"'"8DAB5B6AF8E3821A442579CD003E9B15"
+Private Const PS_UNID = "0177C403FEFA477BC3256C0E0028BF77"'"7F03AEEE8D68A9BF442579CD003E857C"
+Private Const NK_UNID = "ABAB13EE517864B6C32578C30048EB8D"'"0455A47A236806A4442579CD003E9F38"
+Private Const ESOL_UNID = "2768F944375E29BF44257AAE0039A2C2"'"2B9F8231F08998AF44257AB400342554"
+
+Private nLine As String
+Private dlDb As NotesDatabase
+
+Private statDoc As notesdocument
+
+%REM
+Type Substit
+Description: Comments for Type
+%END REM
+Type Substit
+catUNID As Variant
+compUNID As Variant
+frUNID As Variant
+personUNID As Variant
+personLN As Variant
+personRus As Variant
+personEng As Variant
+key As Variant
+fullKey As Variant
+count As Long
+position As Long
+End Type
+' Library DelegationLib -> Class delegation
+' 
+' DCS-Olympiev Jan 17, 2019
+' *********************************************************************************
+Class delegation As Interface
+	Private className As String
+	Private doc As NotesDocument
+	Private db As NotesDatabase
+	Private local As String
+	Private subst As Substituents
+	Private needSave As Boolean
+	
+	Sub New (doc As NotesDocument)
+		On Error GoTo ErrH
+		className = {delegation}
+		Set Me.doc = doc
+		Set Me.db = doc.Parentdatabase
+		Set subst = New Substituents(doc)
+		Dim s As New NotesSession
+		local = s.Getenvironmentstring("localLang")
+		GoTo Endh
+ErrH:
+		Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub
+	' Library DelegationLib -> Function getDoc
+	' NotesDocument
+	' DCS-Olympiev Jan 18, 2019
+	' *********************************************************************************
+	Function getDoc As Variant
+		On Error GoTo ErrH
+
+		Set getDoc = doc
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function queryOpen
+	' Boolean
+	' DCS-Olympiev Jan 18, 2019
+	' *********************************************************************************
+	Function queryOpen As Boolean
+		On Error GoTo ErrH
+
+		If getFuncRoles() Then
+			Call getCategories(getDoc.getItemValue("FRUNIDs")(0))
+			Call setVisibleToCompanies(getDoc.getItemValue("FRUNIDs")(0))	
+			Call subst.setCurrValue
+		End If
+				
+		getDoc.ReplaceItemValue("SaveOptions", "0").SaveToDisk = False 
+		queryOpen = true
+
+		Dim s As New NotesSession
+		Dim dt As New NotesDateTime (now)
+		Set statDoc = getDoc.parentDatabase.createDocument
+		Call statDoc.Replaceitemvalue("form", "PersonEnter")
+		Call statDoc.Replaceitemvalue("userName", s.Username)
+		Call statDoc.Replaceitemvalue("dateIn", dt)
+		Call statDoc.Replaceitemvalue("PersonLN", getDoc.getItemValue("personRusName"))
+		Call statDoc.save(True, False)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getLocalValue
+	' Variant
+	' DCS-Olympiev Jan 21, 2019
+	' *********************************************************************************
+	Function getLocalValue(itmName As String) As Variant
+		On Error GoTo ErrH
+
+		If local = "" Then local = getDoc.GetItemValue("lang")(0)
+		If local = "RUS" Then
+			getLocalValue = getDoc.GetItemValue(itmName & "Rus")
+		Else
+			getLocalValue = getDoc.GetItemValue(itmName & "Eng")
+		End If
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getFuncRoles
+	' Boolean
+	' DCS-Olympiev Jan 21, 2019
+	' *********************************************************************************
+	Function getFuncRoles As Boolean
+		On Error GoTo ErrH
+		
+		Dim fras As ObjectCollection
+		Dim roleNamesRus As String
+		Dim roleNamesEng As String
+		Dim frUNIDs As String 
+		Dim fra As FuncRoleAssignment
+		Dim hasRole As Boolean
+		Dim forAllCompany As Boolean
+		
+		Set fras = ARO_getUserFRAs(getDoc.getItemValue("personLnName")(0))
+		If fras.count() = 0 Then GoTo EndH
+		Set fra = fras.getFirstObject()
+		If fra.getFuncRole().isForAllCompanies() Then
+			Call getDoc.replaceItemValue("FRForAllCompany", "1")
+		End If
+		While Not fra Is Nothing
+			roleNamesRus = roleNamesRus & "~~~" & fra.getFuncRole.getRusName()
+			roleNamesEng = roleNamesEng & "~~~" & fra.getFuncRole.getEngName()
+			frUNIDS = frUNIDs & "~~~" & fra.getFuncRole.unid 'fra.unid
+			getFuncRoles = True
+			Set fra = fras.getNextObject()
+		Wend
+		
+		If Not getFuncRoles Then GoTo Endh
+		
+		Set subst = New Substituents(doc)
+		
+		Call getDoc.replaceItemValue("FRRus",FullTrim(ArrayUnique(Split(roleNamesRus, "~~~"))))
+		Call getDoc.replaceItemValue("FREng",FullTrim(ArrayUnique(Split(roleNamesEng, "~~~"))))
+		Call getDoc.replaceItemValue("FRUnids",FullTrim(ArrayUnique(Split(frUNIDS, "~~~"))))
+		Call getDoc.replaceItemValue("hasFuncRoles","1")
+		
+		Call getDoc.replaceItemValue("funcRoles", getLocalValue("FR")(0))
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getCategories
+	' Boolean
+	' DCS-Olympiev Jan 21, 2019
+	' *********************************************************************************
+	Function getCategories (frUNID As String) As Boolean
+		On Error GoTo ErrH
+
+		Dim funcRole As FuncRole
+		Dim templates As ObjectCollection
+		Dim template As ApprovalTemplate
+		Dim catRus As Variant
+		Dim catEng As Variant
+		Dim catUNID As Variant
+		
+		Set funcRole = ARO_getObject(ARO_getDocumentbyUNID(frUNID))
+		Set templates = funcRole.getApprovalTemplates()
+		Set template = templates.getFirstObject()
+		
+		While Not template Is Nothing
+			If IsArray(catRus) Then
+				catRus = ArrayAppendArray(catRus, template.getDoc.getItemValue("docCategoryRu"))
+				catEng = ArrayAppendArray(catEng, template.getDoc.getItemValue("docCategoryEn"))
+				catUNID = ArrayAppendArray(catUNID, template.getDoc.getItemValue("docCategoryUnid"))
+			Else
+				catRus = template.getDoc.getItemValue("docCategoryRu")
+				catEng = template.getDoc.getItemValue("docCategoryEn")
+				catUNID = template.getDoc.getItemValue("docCategoryUnid")
+			End If
+			Set template = templates.getNextObject()
+		Wend
+		
+		If IsArray(catRus) then
+			Call getDoc.replaceItemValue("catRus",FullTrim(ArrayUnique(catRus)))
+			Call getDoc.replaceItemValue("catEng",FullTrim(ArrayUnique(catEng)))
+			Call getDoc.replaceItemValue("catUnids",FullTrim(ArrayUnique(catUNID)))
+			
+			Call getDoc.replaceItemValue("categories", getLocalValue("cat")(0))
+		End If
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function chooseFuncRole
+	' Boolean
+	' DCS-Olympiev Jan 21, 2019
+	' *********************************************************************************
+	Function chooseFuncRole As Boolean
+		On Error GoTo ErrH
+
+		Dim i As Long
+		i = ArrayGetIndex(getLocalValue("FR"), getDoc.GetItemValue("funcRoles")(0))
+		Call getCategories(getDoc.getItemValue("FRUNIDs")(i))
+		
+		Call setVisibleToCompanies(getDoc.getItemValue("FRUNIDs")(i))
+		
+		chooseFuncRole = True
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function addPerson
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function addPerson (doc As NotesDocument, company As String) As Boolean
+		On Error GoTo ErrH
+		
+		Dim unid As String
+		Dim fldName As String
+		Dim key As String
+		
+		Select Case company
+			Case "DCS"
+				unid = DCS_UNID
+				fldName = DCS_PERS
+			Case "BS"
+				unid = BS_UNID
+				fldName = BS_PERS
+			Case "NK"
+				unid = NK_UNID
+				fldName = NK_PERS
+			Case "ESOL"
+				unid = ESOL_UNID
+				fldName = ESOL_PERS
+			Case "PS"
+				unid = PS_UNID
+				fldName = PS_PERS
+		End Select
+		If subst.addPerson(doc, unid) Then Call setNeedSave
+		key = subst.DocGetKey() & unid
+		
+		Call getDoc.replaceItemValue(fldName,subst.getLocalPerson(subst.getPositionByFullKey(key)))
+
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function save
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function querySave() As Boolean
+		On Error GoTo ErrH
+
+		'If needSave Then getDoc.ReplaceItemValue("SaveOptions", "1").SaveToDisk = false 
+		
+		If Not subst Is Nothing Then Call subst.save()
+		querySave = true
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function save
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function save As Boolean
+		On Error GoTo ErrH
+
+		save = getDoc.save(True, FAlse)
+				
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function chooseCategory
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function chooseCategory As Boolean
+		On Error GoTo ErrH
+
+		Dim i As Long
+		'	i = ArrayGetIndex(getLocalValue("cat"), getDoc.GetItemValue("categories")(0)).
+		chooseCategory = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function updateSubstituents
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function updateSubstituents As Boolean
+		On Error GoTo ErrH
+
+		Call subst.setCurrValue
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function SetSubstituent
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function SetSubstituent (docTmp As NotesDocument) As Boolean
+		On Error GoTo ErrH
+		
+		Dim LNName As NotesName	
+		Dim LNNames As Variant
+		Dim i As Integer
+				
+		If Not docTmp Is Nothing Then
+			Call getDoc.Replaceitemvalue("SubstituentRus", docTmp.Getitemvalue("Persons"))
+			Call getDoc.Replaceitemvalue("SubstituentUNID", docTmp.Getitemvalue("PersonsUnid"))
+			LNNames = docTmp.Getitemvalue("PersonsLN")
+			Call getDoc.Replaceitemvalue("SubstituentLN", LNNames)
+			For i=0 To UBound(LNNames)
+				Set lnName = New NotesName(lnNames(i))
+				lNNames(i) = lnName.Common
+			Next
+			Call getDoc.Replaceitemvalue("SubstituentEng", lNNames)
+			
+			Call setNeedSave
+		End If
+		
+		SetSubstituent = needSave
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function setNeedSend
+	' Variant
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function setNeedSave
+		On Error GoTo ErrH
+
+		getDoc.replaceItemValue("SaveOptions", "1").saveToDisk = False
+		needSave = True	
+		setNeedSave = True
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function addPersonToFR
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function addPersonToFR (doc As NotesDocument) As Boolean
+		On Error GoTo ErrH
+
+		Dim funcRoles As Variant
+
+		funcRoles = getDoc.GetItemValue("FRUNIDs")
+		
+		ForAll funcRole In funcRoles
+			Call addPersonToCat (doc, CStr(funcRole))
+		End ForAll
+		addPersonToFR = True
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function addPersonToCat
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function addPersonToCat (doc As NotesDocument, FRUnid As String) As Boolean
+		On Error GoTo ErrH
+
+		Dim categories As Variant
+		
+		categories = getDoc.GetItemValue("catUNIDs")
+		ForAll category In categories
+			Call addPersonToComp(doc, frUNID, Cstr(category))
+		End ForAll
+		addPersonToCat = True
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function addPersonToComp
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function addPersonToComp (doc As NotesDocument, frUNID As String, catUNID As String) As Boolean
+		On Error GoTo ErrH
+
+		Call subst.setPerson(Doc, Frunid, Catunid, DCS_UNID)
+		Call subst.setPerson(Doc, Frunid, Catunid, BS_UNID)
+		Call subst.setPerson(Doc, Frunid, Catunid, PS_UNID)
+		Call subst.setPerson(Doc, Frunid, Catunid, NK_UNID)
+		Call subst.setPerson(Doc, Frunid, Catunid, ESOL_UNID)
+		Call subst.setCurrValue
+		addPersonToComp = setNeedSave
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getSelectedFRUnid
+	' String
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function getSelectedFRUnid As String
+		On Error GoTo ErrH
+
+		Dim i As Long
+		
+		i = ArrayGetIndex(getLocalValue("FR"), getDoc.GetItemValue("funcRoles")(0))
+		getSelectedFRUnid = getDoc.getItemValue("FRUNIDs")(i)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getSelectedCatUNID
+	' String
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function getSelectedCatUNID As String
+		On Error GoTo ErrH
+
+		Dim i As Long
+		
+		i = ArrayGetIndex(getLocalValue("cat"), getDoc.GetItemValue("categories")(0))
+		getSelectedCatUNID = getDoc.getItemValue("catUNIDs")(i)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getPersonDocByFullKey
+	' NotesDocument
+	' DCS-Olympiev Jan 25, 2019
+	' *********************************************************************************
+	Function getPersonDocByFullKey (key As String) As NotesDocument
+		On Error GoTo ErrH
+
+		Set getPersonDocByFullKey = subst.getPersonDocByFullKey(key)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function setVisibleToCompanies
+	' Boolean
+	' DCS-Olympiev Feb 4, 2019
+	' *********************************************************************************
+	Function setVisibleToCompanies(frUNID As string) As Boolean
+		On Error GoTo ErrH
+
+		Dim fr As FuncRole
+		Dim fras As ObjectCollection
+		Dim fra As FuncRoleAssignment
+		Dim companies List As String
+		
+		Set fr = ARO_getObject(ARO_getDocumentByUNID(frUNID))
+		
+		If fr.isForAllCompanies() Or fr.isCalculated() Then
+			Call getDoc.replaceItemValue("needDCS", "1")
+			Call getDoc.replaceItemValue("needBS", "1")
+			Call getDoc.replaceItemValue("needPS", "1")
+			Call getDoc.replaceItemValue("needNK", "1")
+			Call getDoc.replaceItemValue("needeSol", "1")
+		Else
+			Set fras = fr.GetFRA()
+			Set fra = fras.getFirstObject()
+			While Not fra Is Nothing
+				If fra.getDoc.getItemValue("PersonLN")(0) = getDoc.getItemValue("personLNName")(0) Then companies(fra.GetDoc.getItemValue("CompanyUnid")(0)) = "1"
+				Set fra = fras.getNextObject()
+			Wend
+			If IsElement(companies(DCS_UNID)) Then
+				Call getDoc.replaceItemValue("needDCS", "1")
+			Else
+				Call getDoc.replaceItemValue("needDCS", "")
+			End If
+			If IsElement(companies(BS_UNID)) Then
+				Call getDoc.replaceItemValue("needBS", "1")
+			Else
+				Call getDoc.replaceItemValue("needBS", "")
+			End If
+			If IsElement(companies(PS_UNID)) Then 
+				Call getDoc.replaceItemValue("needPS", "1")
+			Else
+				Call getDoc.replaceItemValue("needPS", "")
+			End If
+			If IsElement(companies(NK_UNID)) Then 
+				Call getDoc.replaceItemValue("needNK", "1")
+			Else
+				Call getDoc.replaceItemValue("needNK", "")
+			End If
+			If IsElement(companies(ESOL_UNID)) Then 
+				Call getDoc.replaceItemValue("needeSol", "1")
+			Else
+				Call getDoc.replaceItemValue("needeSol", "")
+			End If
+		End If	
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getPersonLNName
+	' String
+	' DCS-Olympiev Feb 7, 2019
+	' *********************************************************************************
+	Function getPersonLNName As String
+	On Error GoTo ErrH
+
+		getPersonLNName = getDoc.getItemValue("personLNName")(0)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function postSave
+	' Boolean
+	' DCS-Olympiev Feb 8, 2019
+	' *********************************************************************************
+	Function postSave() As Boolean
+	On Error GoTo ErrH
+
+	postSave = LOG_addHistory(Doc)
+	
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Sub queryClose
+	' 
+	' DCS-Olympiev Apr 11, 2019
+	' *********************************************************************************
+	Function queryClose  As Boolean
+	On Error GoTo ErrH
+
+	Dim dt As New NotesDateTime(now)
+	Call statDoc.Replaceitemvalue("dateOut", dt)
+	Call statDoc.save(True, False)
+queryClose = true
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	'********************************************
+	'Function getSubstituents
+	'Substituents
+	'DCS-Olympiev: Apr 25, 2019
+	'********************************************
+	Function getSubstituents As Substituents
+	On Error GoTo ErrH
+
+	Set getSubstituents = subst
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	'********************************************
+	'Function getAllFullKeys
+	'Variant
+	'DCS-Olympiev: May 18, 2019
+	'********************************************
+	Function getAllFullKeys As Variant
+	On Error GoTo ErrH
+
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+End Class
+
+
+' Library DelegationLib -> Class Substituent
+' 
+' DCS-Olympiev Jan 21, 2019
+' *********************************************************************************
+Class Substituents As Interface
+	Private className As String
+	Private doc As NotesDocument
+	Private Db As NotesDatabase
+	Private subst As Substit
+	Private local As String
+	
+	Sub New (doc As notesdocument)
+		On Error GoTo ErrH
+		className = {Substituent}
+		
+		Set Me.doc =  doc
+		Set Me.db = doc.Parentdatabase
+		Dim s As New NotesSession
+		local = s.Getenvironmentstring("localLang")
+		subst.catUNID = doc.Getitemvalue(APP_PERS_CATUNID)
+		subst.frUNID = doc.Getitemvalue(APP_PERS_FRUNID)
+		subst.compUNID = doc.Getitemvalue(APP_PERS_COMPUNID)
+		subst.personLN = doc.Getitemvalue(APP_PERS_LN)
+		subst.personUNID = doc.Getitemvalue(APP_PERS_UNID)
+		subst.personEng = doc.Getitemvalue(APP_PERS_ENG)
+		subst.personRus = doc.Getitemvalue(APP_PERS_RUS)
+		subst.count = UBound(doc.getitemValue(APP_PERS_UNID))
+		
+		Call setKeys
+		
+		GoTo endH
+ErrH:
+		Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub
+	' Library DelegationLib -> Sub setKeys
+	' 
+	' DCS-Olympiev Jan 22, 2019
+	' *********************************************************************************
+	Sub setKeys
+		On Error GoTo ErrH
+
+		Dim i As Long
+
+		ReDim subst.key(subst.count)
+		ReDim subst.fullKey(subst.count)
+		
+		For i = 0 To subst.count
+			subst.key(i) = subst.frUNID(i) & subst.catUNID(i)
+			subst.fullKey(i) = subst.key(i) & subst.compUNID(i)
+		Next
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub
+	' Library DelegationLib -> Function setCurrValue
+	' Boolean
+	' DCS-Olympiev Jan 22, 2019
+	' *********************************************************************************
+	Function setCurrValue() As Boolean
+		On Error GoTo ErrH
+
+		Dim key As String
+		Dim i As Long
+		Dim persName As String
+		Dim fullKey As String
+		
+		key = DocGetKey
+		stop
+		fullKey = key & DCS_UNID
+		i = getPositionByFullKey(fullKey)
+		If i > -1 Then
+			Call getDoc.ReplaceItemValue(DCS_PERS, getLocalPerson(i))
+		Else
+			Call getDoc.ReplaceItemValue(DCS_PERS, "")
+		End If
+		
+		fullKey = key & BS_UNID
+		i = getPositionByFullKey(fullKey)
+		If i > -1 Then
+			Call getDoc.ReplaceItemValue(BS_PERS, getLocalPerson(i))
+		Else
+			Call getDoc.ReplaceItemValue(BS_PERS, "")
+		End If
+		
+		fullKey = key & ESOL_UNID
+		i = getPositionByFullKey(fullKey)
+		If i > -1 Then 
+			Call getDoc.ReplaceItemValue(ESOL_PERS, getLocalPerson(i))
+		Else
+			Call getDoc.ReplaceItemValue(ESOL_PERS, "")
+		End If
+		
+		fullKey = key & PS_UNID
+		i = getPositionByFullKey(fullKey)
+		If i > -1 Then
+			Call getDoc.ReplaceItemValue(PS_PERS, getLocalPerson(i))
+		Else
+			Call getDoc.ReplaceItemValue(PS_PERS, "")
+		End If
+		
+		fullKey = key & NK_UNID
+		i = getPositionByFullKey(fullKey)
+		If i > -1 Then
+			Call getDoc.ReplaceItemValue(NK_PERS, getLocalPerson(i))
+		Else
+			Call getDoc.ReplaceItemValue(NK_PERS, "")
+		End If
+		
+
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getLocalPerson
+	' String
+	' DCS-Olympiev Jan 22, 2019
+	' *********************************************************************************
+	Function getLocalPerson (i As long) As String
+		On Error GoTo ErrH
+		If i < 0 Then GoTo EndH
+
+		If local = "RUS" Then
+			getLocalPerson = subst.personRus(i)
+		Else
+			getLocalPerson = subst.personEng(i)
+		End If
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getPositionByKey
+	' Long
+	' DCS-Olympiev Jan 22, 2019
+	' *********************************************************************************
+	Function getPositionByFullKey(key As String) As Long
+		On Error GoTo ErrH
+
+		If IsNull(ArrayGetIndex(subst.fullkey, key)) Then
+			getPositionByFullKey = -1
+		Else
+			getPositionByFullKey = ArrayGetIndex(subst.fullkey, key)
+		End If
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getLocalValue
+	' Variant
+	' DCS-Olympiev Jan 21, 2019
+	' *********************************************************************************
+	Function getLocalValue(itmName As String) As Variant
+		On Error GoTo ErrH
+
+		If local = "" Then local = getDoc.GetItemValue("lang")(0)
+		
+		If local = "RUS" Then
+			getLocalValue = getDoc.GetItemValue(itmName & "Rus")
+		Else
+			getLocalValue = getDoc.GetItemValue(itmName & "Eng")
+		End If
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getDoc
+	' NotesDocument
+	' DCS-Olympiev Jan 18, 2019
+	' *********************************************************************************
+	Function getDoc As Variant
+		On Error GoTo ErrH
+
+		Set getDoc = doc
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function addPerson
+	' Boolean
+	' DCS-Olympiev Jan 22, 2019
+	' *********************************************************************************
+	Function addPerson(doc As NotesDocument, unidMain As String) As Boolean
+		On Error GoTo ErrH
+
+		Dim key As String
+		Dim position As Long
+		Dim i As Long
+		Dim frUNID As String
+		Dim catUNID As String
+		
+		i = ArrayGetIndex(getLocalValue("FR"), getDoc.GetItemValue("funcRoles")(0))
+		frUNID =  getDoc.getItemValue("FRUNIDs")(i)
+		
+		i = ArrayGetIndex(getLocalValue("cat"), getDoc.GetItemValue("categories")(0))
+		catUNID =  getDoc.getItemValue("catUNIDs")(i)
+		
+		addPerson = setPerson(doc, frUNID, catUNID, unidMAin)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function DocGetKey
+	' String
+	' DCS-Olympiev Jan 22, 2019
+	' *********************************************************************************
+	Function DocGetKey As String
+		On Error GoTo ErrH
+
+		Dim i As Long
+		
+		i = ArrayGetIndex(getLocalValue("FR"), getDoc.GetItemValue("funcRoles")(0))
+		DocGetKey = getDoc.getItemValue("FRUNIDs")(i)
+		i = ArrayGetIndex(getLocalValue("cat"), getDoc.GetItemValue("categories")(0))
+		DocGetKey = DocGetKey & getDoc.getItemValue("catUNIDs")(i)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function save
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function save() As Boolean
+		On Error GoTo ErrH
+		
+		subst.key = FullTrim(subst.key)
+		subst.fullKey = FullTrim(subst.fullKey)
+		subst.personUNID = FullTrim(subst.personUNID)
+		subst.personLN = FullTrim(subst.personLN)
+		subst.personEng = FullTrim(subst.personEng)
+		subst.personRus = FullTrim(subst.personRus)
+		subst.frUNID = FullTrim(subst.frUNID)
+		subst.catUNID = FullTrim(subst.catUNID)
+		subst.compUNID = FullTrim(subst.compUNID)
+
+		Call getDoc.replaceItemValue(APP_PERS_CATUNID, subst.catUNID)
+		Call getDoc.replaceItemValue(APP_PERS_COMPUNID, subst.compUNID)
+		Call getDoc.replaceItemValue(APP_PERS_FRUNID, subst.frUNID)
+		Call getDoc.replaceItemValue(APP_PERS_RUS, subst.personRus)
+		Call getDoc.replaceItemValue(APP_PERS_ENG, subst.personEng)
+		Call getDoc.replaceItemValue(APP_PERS_LN, subst.personLN)
+		Call getDoc.replaceItemValue(APP_PERS_UNID, subst.personUNID)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function setPerson
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function setPerson (doc As NotesDocument, frUNID As String, catUNID As String, unidMain As String) As Boolean
+		On Error GoTo ErrH
+		
+		Dim key As String
+		Dim position As Long
+		Dim pName As NotesName
+		
+		key = frUNID & catUNID & unidMain
+		position =	getPositionByFullKey(key)
+		
+		If position < 0 Then
+			subst.count = subst.count + 1
+			
+			ReDim Preserve subst.frUNID(subst.count)
+			subst.frUNID(subst.count) =  frUNID
+			
+			ReDim Preserve subst.catUNID(subst.count)
+			subst.catUNID(subst.count) = catUNID
+			
+			ReDim Preserve subst.compUNID(subst.count)
+			subst.compUNID(subst.count) = unidMain
+			
+			ReDim Preserve subst.personLN(subst.count)
+			subst.personLN(subst.count) = doc.Getitemvalue("NotesAddress")(0)
+			
+			ReDim Preserve subst.personUNID(subst.count)
+			subst.personUNID(subst.count) = doc.UniversalID
+			
+			ReDim Preserve subst.personRus(subst.count)
+			subst.personRus(subst.count) = doc.Getitemvalue("Caller")(0)
+			
+			ReDim Preserve subst.personEng(subst.count)
+			subst.personEng(subst.count) = doc.Getitemvalue("CallerEn")(0)
+			If subst.personEng(subst.count) = "" Then 
+				Set pName = New NotesName (doc.Getitemvalue("NotesAddress")(0))
+				subst.personEng(subst.count) = pName.Common	
+			End If
+			
+			
+			ReDim Preserve subst.key(subst.count) 
+			subst.key(subst.count) = subst.frUNID(subst.count) & subst.catUNID(subst.count)
+			
+			ReDim Preserve subst.fullKey(subst.count)
+			subst.fullKey(subst.count) = subst.key(subst.count) & unidMain
+			
+		Else
+			subst.personLN(position) = doc.Getitemvalue("NotesAddress")(0)
+			subst.personUNID(position) = doc.UniversalID
+			subst.personEng(position) = doc.Getitemvalue("CallerEn")(0)
+			If subst.personEng(position) = "" Then 
+				Set pName = New NotesName (doc.Getitemvalue("NotesAddress")(0))
+				subst.personEng(position) = pName.Common	
+			End If
+			subst.personRus(position) = doc.Getitemvalue("Caller")(0)
+		End If
+		setPerson = True
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function getPersonDocByFullKey
+	' NotesDocument
+	' DCS-Olympiev Jan 25, 2019
+	' *********************************************************************************
+	Function getPersonDocByFullKey (key As String) As NotesDocument
+		On Error GoTo ErrH
+
+		Dim position As Long
+		position = getPositionByFullKey(Key)
+		Dim unid As String
+		If position < 0 Then GoTo Endh
+		unid = subst.personUNID(position)
+		Dim personDoc As NotesDocument
+		
+		Set personDoc = PD_GetPersoneByUNID(Unid)
+		Set getPersonDocByFullKey = personDoc
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib -> Function removePerson
+	' Boolean
+	' DCS-Olympiev Mar 18, 2019
+	' *********************************************************************************
+	Function removePerson (i As Long) As Boolean
+	On Error GoTo ErrH
+
+	subst.catUNID(i) = ""
+	subst.compUNID(i) = ""	
+	subst.frUNID(i) = ""
+	subst.personEng(i) = ""
+	subst.personLN(i) = ""
+	subst.personRus(i) = ""
+	subst.personUNID(i) = ""
+	subst.fullKey(i) = ""
+	subst.key(i) = ""		
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+' Library DelegationLib -> Function getFirstLNName
+' String
+' DCS-Olympiev Mar 18, 2019
+' *********************************************************************************
+Function getFirst As Notesdocument
+	On Error GoTo ErrH
+
+	Dim pDoc As NotesDocument
+	
+	subst.position = 0
+	Set pDoc = PD_GetPersoneByUNID(subst.personUNID(subst.position))
+	
+	Set getFirst = pDoc
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+' Library DelegationLib -> Function getNextLNName
+' String
+' DCS-Olympiev Mar 18, 2019
+' *********************************************************************************
+Function getNext As NotesDocument
+	On Error GoTo ErrH
+
+	Dim pDoc As NotesDocument
+	
+	If subst.count < subst.position + 1 Then GoTo EndH
+	
+	subst.position = subst.position + 1
+	
+	Set pDoc = PD_GetPersoneByUNID(subst.personUNID(subst.position))
+
+	Set getNext = pDoc
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+' Library DelegationLib -> Function getLastLnName
+' String
+' DCS-Olympiev Mar 18, 2019
+' *********************************************************************************
+Function getLast As NotesDocument
+	On Error GoTo ErrH
+
+	Dim pDoc As NotesDocument
+	
+	subst.position = subst.count
+	Set pDoc = PD_GetPersoneByUNID(subst.personUNID(subst.position))
+	
+	Set getLast = pDoc
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+' Library DelegationLib -> Function getPrevLNName
+' String
+' DCS-Olympiev Mar 18, 2019
+' *********************************************************************************
+Function getPrev As NotesDocument
+	On Error GoTo ErrH
+
+	Dim pDoc As NotesDocument
+	
+	If subst.position < 1 Then GoTo EndH
+	
+	subst.position = subst.position - 1
+	
+	Set pDoc = PD_GetPersoneByUNID(subst.personUNID(subst.position))
+
+	Set getPrev = pDoc
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+' Library DelegationLib -> Function getCurrentPosition
+' Long
+' DCS-Olympiev Mar 18, 2019
+' *********************************************************************************
+Function getCurrentPosition As Long
+	On Error GoTo ErrH
+
+	getCurrentPosition = subst.position
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+' Library DelegationLib -> Function getLocal
+' String
+' DCS-Olympiev Mar 19, 2019
+' *********************************************************************************
+Function getLocal As String
+	On Error GoTo ErrH
+
+	getLocal = local
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+' Library DelegationLib -> Function getRusPerson
+' String
+' DCS-Olympiev Mar 19, 2019
+' *********************************************************************************
+	Function getRusPerson (i As Long) As String
+	On Error GoTo ErrH
+
+		If i < 0 Then GoTo EndH
+
+		getRusPerson = subst.personRus(i)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+' Library DelegationLib -> Function getEngPerson
+	' String
+' DCS-Olympiev Mar 19, 2019
+' *********************************************************************************
+	Function getEngPerson (i As Long) As String
+	On Error GoTo ErrH
+
+		If i < 0 Then GoTo EndH
+
+		getEngPerson = subst.personEng(i)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+'********************************************
+'Function getFuncRole
+'Funcrole
+'DCS-Olympiev: Apr 25, 2019
+'********************************************
+Function getFuncRole As FuncRole
+	On Error GoTo ErrH
+	
+	Set getFuncRole = ARO_getObject(ARO_getDocumentByUNID(subst.frUNID(subst.position)))
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+End Function
+End Class
+'++LotusScript Development Environment:2:2:Initialize:2:10
+
+Sub Initialize
+	On Error GoTo ErrH
+	nLine = Chr(10) & Chr(13)
+
+
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Sub
+
+
+
+'++LotusScript Development Environment:2:1:DL_updateDelegationCardFromFirmDoc:6:8
+'********************************************
+'Function DL_updateDelegationCardFromFirmDoc
+'Boolean
+'DCS-Olympiev: Apr 23, 2019
+'********************************************
+Function DL_updateDelegationCardFromFirmDoc (dDoc As NotesDocument, fDoc As NotesDocument) As Boolean
+	On Error GoTo ErrH
+	
+	Dim rusName As String
+	Dim engName As String
+	Dim lnName As String
+	Dim needSave As Boolean
+
+	rusName = fDoc.Getitemvalue("Caller")(0)
+	engName = DL_getEngNameByFirmDoc(fDoc)
+	lnName = fDoc.Getitemvalue("NotesAddress")(0)
+	
+	If rusName <> dDoc.Getitemvalue("personRusName")(0) Then needSave = True
+	If engName <> dDoc.Getitemvalue("personEngName")(0) Then needSave = True
+	If lnName <> dDoc.Getitemvalue("personLNName")(0) Then needSave = True
+	
+	If needSave then
+		Call dDoc.Replaceitemvalue("personRusName", rusName)
+		Call dDoc.Replaceitemvalue("personLNName", lnName)
+		Call dDoc.Replaceitemvalue("personEngName", engName)
+		Call dDoc.Save(False, dDoc.Isresponse)
+	End If
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+End Function
+
+
+'++LotusScript Development Environment:2:1:DL_getEngNameByFirmDoc:6:8
+'********************************************
+'Function DL_getEngNameByFirmDoc
+'String
+'DCS-Olympiev: Apr 23, 2019
+'********************************************
+Function DL_getEngNameByFirmDoc (fDoc As NotesDocument) As String
+	On Error GoTo ErrH
+
+	Dim engName As String
+	Dim lName As NotesName
+	engName = fDoc.getitemValue("CallerEn")(0)
+	If engName = "" Then
+		Set lName = New NotesName(fDoc.getitemValue("NotesAddress")(0))
+		engName = lName.Common
+	End If
+	
+	DL_getEngNameByFirmDoc = engName
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:DL_getDelegationDocByPersonUNID:5:8
+' Library DelegationLib -> Function DL_getDelegationDocByPersonUNID
+' NotesDocumentCollection
+' DCS-Olympiev Jan 25, 2019
+' *********************************************************************************
+Function DL_getDelegationDocByPersonUNID (unid As String) As NotesDocument
+	On Error GoTo ErrH
+
+	Dim delDoc As NotesDocument
+	Set delDoc = DL_getDb.getView("(ByPersonUNID)").Getdocumentbykey(unid)
+	
+	Set DL_getDelegationDocByPersonUNID = delDoc
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+
+
+'++LotusScript Development Environment:2:1:DL_createDelegationCardFromFirmDoc:6:8
+'********************************************
+'Function DL_createDelegationCardFromFirmDoc
+'NotesDocument
+'DCS-Olympiev: Apr 23, 2019
+'********************************************
+Function DL_createDelegationCardFromFirmDoc (fDoc As NotesDocument) As NotesDocument
+	On Error GoTo ErrH
+	
+	Dim dDoc As NotesDocument
+	Dim view As NotesView
+		
+	Set view = DL_getDb().getView("(ByPersonUNID)")
+	
+	Set dDoc = view.Getdocumentbykey(fDoc.Universalid)
+	If Not dDoc Is Nothing Then GoTo Endh
+
+	Set dDoc =  DL_getDb().Createdocument()
+	Call dDoc.Replaceitemvalue("form", "person")
+	Call dDoc.Replaceitemvalue("UNID", dDoc.Universalid)
+	Call dDoc.Replaceitemvalue("personUNID", fDoc.Universalid)
+	Call dDoc.Replaceitemvalue("personLNName", fDoc.Getitemvalue("NotesAddress"))
+	Call dDoc.Replaceitemvalue("personRusName", fDoc.Getitemvalue("Caller"))
+	Call dDoc.Replaceitemvalue("personEngName", DL_getEngNameByFirmDoc(fDoc))
+
+	Call dDoc.Save(True, False)
+	
+	Set DL_createDelegationCardFromFirmDoc = dDoc
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+End Function
+
+
+'++LotusScript Development Environment:2:1:DL_getDb:5:8
+' Library DelegationLib -> Function DL_getDb
+' NotesDatabase
+' DCS-Olympiev Jan 18, 2019
+' *********************************************************************************
+Function DL_getDb As NotesDatabase
+	On Error GoTo ErrH
+
+	If dlDb Is Nothing Then Set dlDb = DBT_GetDbBySearchKey(DB_SEARCHKEY)
+	
+	Set DL_getDb = dlDb
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

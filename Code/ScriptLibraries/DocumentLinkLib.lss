@@ -1,0 +1,196 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+%REM
+	Library DocumentLinkLib
+	Created Jan 18, 2019 by Alexandr S. Olympiev/OTTO/RU
+	Description: Comments for Library
+%END REM
+Option Public
+Option Declare
+Use "DatabaseTools"
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Class DocumentLink
+Declare Sub Initialize
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const DesignElem = {DocumentLinkLib}
+Private Const UNID_PREFIX = {_UNID}
+Private Const RUS_PREFIX = {_NameRu}
+Private Const ENG_PREFIX = {_NameEn}
+Private Const COMMENT_PREFIX = {_COMMENT}
+Private Const DB_SEERACHKEY_PREFIX = {_DBSearchKey}
+
+Private nLine As String
+
+%REM
+	Type docLink
+	Description: Comments for Type
+%END REM
+Type docLink
+	dbSearchKey As Variant
+	unid As Variant
+	NameRus As Variant
+	NameEng As Variant
+	Comment As Variant
+	Count As Long
+End Type
+' Library DocumentLinkLib -> Class DocumentLink
+' Класс для хранения ссылок на другие документы в доке.
+' Возвращаемые ошибки 
+' 5200 - ссылки на документ нет
+' DCS-Olympiev Jan 18, 2019
+' *********************************************************************************
+Class DocumentLink
+	Private className As String
+	Private docLink As docLink
+	Private doc As NotesDocument
+	Private fieldName As String
+	
+	Sub New (doc As Variant, fieldName As Variant)
+		On Error GoTo ErrH
+		className = {DocumentLink}
+			
+		If TypeName(doc) = "NOTESUIDOCUMENT" Then
+			If Not doc.Document Is Nothing Then Set Me.doc = doc.Document
+		ElseIf TypeName(doc) = "NOTESDOCUMENT" Then
+			Set Me.doc = doc
+		Else
+			Set Me.doc = doc.getDoc()
+		End If
+		Me.fieldName = fieldName
+		docLink.Comment = Me.Doc.Getitemvalue(fieldName & COMMENT_PREFIX)
+		docLink.dbSearchKey = Me.Doc.Getitemvalue(fieldName & DB_SEERACHKEY_PREFIX)
+		docLink.NameEng = Me.Doc.Getitemvalue(fieldName & ENG_PREFIX)
+		docLink.NameRus = Me.Doc.Getitemvalue(fieldName & RUS_PREFIX)
+		docLink.unid = Me.Doc.Getitemvalue(fieldName & UNID_PREFIX)
+		docLink.Count = UBound(Me.doc.Getitemvalue(fieldName & UNID_PREFIX)) + 1
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub
+	
+	' Library DocumentLinkLib -> Function addLink
+	' Boolean
+	' DCS-Olympiev Jan 18, 2019
+	' *********************************************************************************
+	Function addLink (linkDoc As NotesDocument, comment As String, NameRus As String, NameEng As String) As Boolean
+	On Error GoTo ErrH
+
+		docLink.Comment = ArrayAppend(docLink.Comment, comment)
+		docLink.NameEng = ArrayAppend(docLink.NameEng, NameEng)
+		docLink.NameRus = ArrayAppend(docLink.NameRus, NameRus)
+		docLink.unid = ArrayAppend(docLink.unid, linkDoc.UniversalID)		
+		docLink.dbSearchKey = ArrayAppend(docLink.dbSearchKey, DBT_getSearchKeyByDb(linkDoc.Parentdatabase))
+		docLink.Count = docLink.count + 1
+		
+		Call doc.Replaceitemvalue(fieldName & UNID_PREFIX, doclink.unid)
+		Call doc.Replaceitemvalue(fieldName & RUS_PREFIX, doclink.NameRus)
+		Call doc.Replaceitemvalue(fieldName & ENG_PREFIX, doclink.NameEng)
+		Call doc.Replaceitemvalue(fieldName & DB_SEERACHKEY_PREFIX, doclink.dbSearchKey)
+		Call doc.Replaceitemvalue(fieldName & COMMENT_PREFIX, doclink.Comment)
+		
+		addLink = True
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DocumentLinkLib -> Function getPosition
+	' Long
+	' DCS-Olympiev Jan 18, 2019
+	' *********************************************************************************
+	Function getPosition (arg As Variant) As Long
+	On Error GoTo ErrH
+
+	Select Case TypeName(arg)
+		Case "STRING"
+			If Not IsNull(ArrayGetIndex(docLink.unid, arg)) Then
+				getPosition = ArrayGetIndex(docLink.unid, arg)
+				GoTo endH
+			ElseIf Not IsNull(ArrayGetIndex(docLink.NameRus, arg)) Then
+				getPosition = ArrayGetIndex(docLink.NameRus, arg)
+				GoTo endH
+			ElseIf Not IsNull(ArrayGetIndex(docLink.NameEng, arg)) Then
+				getPosition = ArrayGetIndex(docLink.NameEng, arg)
+				GoTo endH
+			ElseIf Not IsNull(ArrayGetIndex(docLink.Comment, arg)) Then
+				getPosition = ArrayGetIndex(docLink.Comment, arg)
+				GoTo endH
+			Else
+				Error 5200, "Не найдена запись в документоссылке по строке " & arg
+			End If
+		Case "NOTESDOCUMENT"
+			If arg Is Nothing Then GoTo Endh
+			If Not IsNull(ArrayGetIndex(docLink.unid, arg)) Then
+				getPosition = ArrayGetIndex(docLink.unid, arg)
+				GoTo endH
+			Else
+				Error 5200, "Не найдена запись в документоссылке по документу " & arg.UniversalID & " из БД " & arg.parentDatabase.Title & "."
+			End If
+		Case Else
+			Error 5199, "Некорректный аргумент"
+	End Select
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DocumentLinkLib -> Function getDocument
+	' NotesDocument
+	' DCS-Olympiev Jan 18, 2019
+	' *********************************************************************************
+	Function getDocument (position As long) As NotesDocument
+	On Error GoTo ErrH
+
+	If position < 0 Or position > docLink.Count Then GoTo EndH
+	
+	If docLink.unid(position) = "" Then GoTo EndH
+
+	Dim doc As NotesDocument
+
+	Set doc = DBT_GetExtDocumentByUNID(CStr(docLink.dbSearchKey(position)), "", "", CStr(docLink.unid(position)))	
+	
+	Set getDocument = doc
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DocumentLinkLib -> Function save
+	' Boolean
+	' DCS-Olympiev Jan 18, 2019
+	' *********************************************************************************
+	Function save As Boolean
+	On Error GoTo ErrH
+
+		Call doc.Save(True, False)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+End Class
+'++LotusScript Development Environment:2:2:Initialize:2:10
+
+Sub Initialize
+	On Error GoTo ErrH
+	nLine = Chr(10) & Chr(13)
+
+
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Sub
+
+
+
+
+
+

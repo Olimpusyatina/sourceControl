@@ -1,0 +1,2975 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+%REM
+	Library ApprovalLib
+	Created Oct 24, 2018 by Alexandr S. Olympiev/OTTO/RU
+	Description: Comments for Library
+%END REM
+Option Public
+Option Declare
+Use "TransactionLib"
+Use "StatusLib"
+Use "ApprefObjects"
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Class Approval As interface
+Declare Class Visa As Interface
+Declare Sub Initialize
+Declare Function APL_CreateApprovalDocument (mainDoc As NotesDocument) As NotesDocument
+Declare Function APL_getDocumentByUNID (unid As String) As NotesDocument
+Declare Function APL_recalcVisas (objCol As ObjectCollection) As ObjectCollection
+Declare Function APL_getDb As NotesDatabase
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const DesignElem = {ApprovalLib}
+Private nLine As String
+
+Const APPROVAL_DB_NAME = "APPROVAL"
+
+Private Const VIEW_BYUNID = "(ByUNID)"
+Private Const APPROVAL_BY_MAINUNID_VIEW  = "ApprovalByParentUNID"
+Private Const VISA_BY_APPROVALCYCLESTAGE_VIEW = "VisaByApprovalCycleStage"
+Private Const VISA_BY_APPROVALCYCLE_STATUSNUMBER_VIEW = "VisaByApprovalCycleStatusNumber"
+
+Private approvalDatabase As NotesDatabase
+Private linkDb As notesdatabase
+
+' Library ApprovalLib -> Class Approval
+' 
+' DCS-Olympiev Oct 24, 2018
+' *********************************************************************************
+Class Approval As interface
+	Private className As String
+	Private mainDoc As NotesDocument
+	Private mainDb As NotesDatabase
+	Private visas As ObjectCollection
+	Private currVisasDc As DocumentCollection
+	Private Status As Status
+	Private newCycle As Boolean
+	Private currCycle As Integer
+	Private saved As Boolean
+	Private fakeDoc As NotesDocument
+	
+	Sub New (doc As NotesDocument)
+		Const FuncName = {Approval.New}
+		On Error GoTo ErrH
+		className = {Approval}
+		
+		Set fakeDoc = doc
+		Call fakeDoc.replaceItemValue("SaveOptions", "0")	
+		Set visas = New ObjectCollection
+		Call setCurrentCycle()
+		
+		Set mainDb = DBT_GetDbBySearchKey(getDoc.Getitemvalue("ExtDbSearchKey")(0))
+		Dim view As NotesView
+		Set view = mainDb.getView("(ByUNID)")
+		If view Is Nothing Then	
+			Set mainDoc = mainDb.Getdocumentbyunid(getDoc.Getitemvalue("ExtDocUNID")(0))
+		Else
+			Set mainDoc = view.Getdocumentbykey(getDoc.Getitemvalue("ExtDocUNID")(0))
+		End If
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Sub
+
+	' Library ApprovalLib -> Function queryOpen
+	' Boolean
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function queryOpen As Boolean
+		Const FuncName = {queryOpen}
+		On Error GoTo ErrH
+		
+		If newCycle Then 
+			If needReApprove() Then
+				If Not  createNewCycleReApprove() Then GoTo endH
+			Else
+				If Not  createNewCycle() Then GoTo endH				
+			End If
+		End If
+	
+		Call setCycleInfo()
+		
+		Dim s As New NotesSession
+		Call s.Setenvironmentvar("APPROVAL_UNID", getDoc.Getitemvalue("UNID")(0))
+		Call s.Setenvironmentvar("APPROVAL_CYCLE", currCycle)
+		
+		queryOpen = True
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+
+	' Library ApprovalLib -> Function getDoc
+	' Variant
+	' DCS-Olympiev Oct 24, 2018
+	' *********************************************************************************
+	Function getDoc As Variant
+		Const FuncName = {getDoc}
+		On Error GoTo ErrH
+
+		Set getDoc = fakeDoc
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function isNew
+	' Boolean
+	' DCS-Olympiev Oct 24, 2018
+	' *********************************************************************************
+	Function isNew As Boolean
+		Const FuncName = {isNew}
+		On Error GoTo ErrH
+
+		isNew = (newCycle Or status.GetCurrentStatusNumber() = "000")'appDoc.Getitemvalue("StatusNumber")(0) = "000")
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+
+	' Library ApprovalLib -> Function getMainDocument
+	' NotesDocument
+	' DCS-Olympiev Oct 24, 2018
+	' *********************************************************************************
+	Function getMainDocument() As NotesDocument
+		Const FuncName = {getMainDocument}
+		On Error GoTo ErrH
+
+		Set getMainDocument = Me.mainDoc
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setCycleInfo
+	' Boolean
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function setCycleInfo As Boolean
+		Const FuncName = {setCycleInfo}
+		On Error GoTo ErrH
+
+		getDoc.Replaceitemvalue("creatorRu", Getitemvalue("creatorRu")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("creatorLn", Getitemvalue("creatorLn")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("creatorEn", Getitemvalue("creatorEn")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("CreateDate",  Getitemvalue("CreateDate")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("Comment",  Getitemvalue("Comment")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("DescriptionRu",  Getitemvalue("DescriptionRu")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("DescriptionEn",  Getitemvalue("DescriptionEn")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("Subject",  Getitemvalue("Subject")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("ExecutorRu",  Getitemvalue("ExecutorRu")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("ExecutorEn",  Getitemvalue("ExecutorEn")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("urgent",  Getitemvalue("urgent")(0)).Savetodisk = False
+		
+		getDoc.Replaceitemvalue("StatusRus", getDoc.Getitemvalue("StatusRu")(0)).Savetodisk = False
+		getDoc.Replaceitemvalue("StatusEng", getDoc.Getitemvalue("StatusEn")(0)).Savetodisk = False
+		setCycleInfo = setStageInfo()
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function createNewCycle
+	' Boolean
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function createNewCycle As Boolean
+		Const FuncName = {createNewCycle}
+		On Error GoTo ErrH
+
+		Dim s As New NotesSession
+		Dim templates As Variant
+		Dim tmplCol As New ObjectCollection
+		Dim template As ApprovalTemplate
+		Dim tmplVisas As NotesDocumentCollection
+		Dim tmplVisa As NotesDocument
+		Dim refDb As NotesDatabase
+		Dim visaDoc As NotesDocument
+		Dim visa As Visa
+		Dim FRAs As New ObjectCollection
+		Dim FRA As FuncRoleAssignment
+		Dim visaPers As New DocumentCollection
+		Dim docType As DocumentType
+		Dim evRes As Variant
+		Dim pDoc As NotesDocument
+		Dim msgText As String
+		Dim i As Integer
+		Dim tmpl2 As ApprovalTemplate
+		
+		Set refDb = ARO_getDB()
+		templates = ARO_getApprovalTemplates(mainDoc)
+		
+		If templates(0) Is Nothing Then
+			msgText = "Не найдено ни одного шаблона согласования для данного документа."
+			MsgBox msgText
+			GoTo EndH
+		End If 
+		
+		If LBound(templates) = UBound(templates) Then
+			Set template = templates(0)
+		Else
+			For i = LBound(templates) To UBound(templates)
+				Call tmplCol.addObject(templates(i))
+			Next 
+			Call tmplCol.sort(False)
+			Set template = tmplCol.getFirstObject()
+			Set tmpl2 = tmplCol.getNextObject()
+			If template.getCriteria.getCriteriasCount = tmpl2.getCriteria.getCriteriasCount Then
+				msgText = "Найдено более одного шаблона согласования." & nLine
+				msgText = msgText & "- " & template.getName() & nLine
+				While template.getCriteria.getCriteriasCount = tmpl2.getCriteria.getCriteriasCount
+					msgText = msgText & "- " & tmpl2.getName() & nLine
+					Set template = tmpl2
+					Set tmpl2 = tmplCol.getNextObject()
+				Wend
+				MsgBox msgText
+				GoTo EndH
+			End If
+		End If
+		
+'		
+'		If LBound(templates) <> UBound(templates) Then
+'			msgText = "Найдено более одного шаблона согласования." & nLine
+'			ForAll tmpl In templates
+'				msgText = msgText & "- " & tmpl.getName() & nLine
+'			End ForAll
+'			MsgBox msgText
+'			GoTo EndH
+'		End If
+		'	Error 5012, "Найдено более одного шаблона для данного документа"
+		
+		Set docType = ARO_getObject(ARO_getDocumentByUNID(template.getTypeDocUNID))
+		
+		Call replaceItemValue("DescriptionRu", template.getName())'docType.getDoc().getItemValue("NameRu")(0))
+		Call replaceItemValue("DescriptionEn", template.getName())'docType.getDoc().getItemValue("NameEn")(0))
+		stop
+		evres = Evaluate(docType.getDoc().getItemValue("SubjectFormula")(0), mainDoc)
+		Call replaceItemValue("Subject", evRes(0))
+		Call replaceItemValue("CreatorRu", PD_GetPersoneRusName(s.userName))
+		Call replaceItemValue("CreatorLn", s.userName)
+		Call replaceItemValue("CreatorEn", PD_GetPersonDocByLN(s.userName).getItemValue("CallerEn")(0))
+		Call replaceItemValue("templateUNID", template.unid)
+		Call replaceItemValue("templateName", template.getName)
+		Call replaceItemValue("CreateDate", Now)
+		Call setExecutor(PD_GetPersonDocByLN(s.userName))
+		
+		
+		Set tmplVisas = template.getVisas
+		Set tmplVisa = tmplVisas.Getfirstdocument()
+		While Not tmplVisa Is Nothing
+			Set visaDoc = APL_getDb.Createdocument()
+			Call visaDoc.Replaceitemvalue("form", "visa")
+			Call visaDoc.Replaceitemvalue("UNID", visaDoc.Universalid)
+			Call visaDoc.Replaceitemvalue("ApprovalUNID", getDoc.Getitemvalue("UNID")(0))
+			Set visa = New Visa (visaDoc)
+			Call visa.setCycle(currCycle)
+			Call visa.setStage(CInt(tmplVisa.Getitemvalue("visaCircle")(0)))
+			Set visaPers = New DocumentCollection		
+			Set fra = New FuncRoleAssignment(ARO_getDocumentByUNID(tmplVisa.Getitemvalue("FuncRoleUNID")(0)))
+			' !!!!!!!!!!!!!!!Сделать выборку по компании!!!!!!!!!!!!!!!!!!!!!!
+			If fra.isForAllCompany() Then
+				Call visaPers.addDocument(fra.PersonGet(mainDoc))
+				Call visa.setFuncRole(FRA.getFuncRole())
+				Set FRAs = fra.getAnalogs()
+			Else
+				Set FRAs = fra.getFRAForCompany(docType.getFirmsUNIDS(getMainDocument))
+				Call visa.setFuncRole(FRA.getFuncRole())
+			End If	
+			'			Set FRAs = fra.getFRAForCompany(docType.getFirmsUNIDS(getMainDocument))
+			Set FRA = FRAs.getFirstObject()
+			While Not FRA Is Nothing
+				Set pDoc = fra.PersonGet(mainDoc)
+				If pDoc.Getitemvalue("NotesAddress")(0) <> s.Username Then Call visaPers.addDocument(pDoc)
+				Set FRA = FRAs.getNextObject()
+			Wend
+			If visaPers.count() = 0 Then Error 5012, "Отсутствует сотрудник на функциональной роли " & FRA.getFuncRole().getName()
+			Call visa.setPersons(visaPers)
+			'		Call visa.Save()
+			Call visas.addObject(visa)
+			Set tmplVisa = tmplVisas.Getnextdocument(tmplVisa)
+		Wend
+		Set visas = APL_recalcVisas(visas)
+		Call visas.save()
+		
+		Call save
+		createNewCycle = True
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function appendItemValue
+	' Boolean
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function replaceItemValue(itmName As String, value As Variant) As Boolean
+		Const FuncName = {appendItemValue}
+		On Error GoTo ErrH
+
+		Call getDoc.replaceItemValue(currCycle & "_" & itmName, value)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getItemValue
+	' Variant
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function getItemValue(itmName As string) As Variant
+		Const FuncName = {getItemValue}
+		On Error GoTo ErrH
+
+		getItemValue = getDoc.Getitemvalue(currCycle & "_" & itmName)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setCurrentCycle
+	' Boolean
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function setCurrentCycle As Boolean
+		Const FuncName = {setCurrentCycle}
+		On Error GoTo ErrH
+		
+		Dim s As New NotesSession
+		Dim cycle As String
+		
+		cycle = s.Getenvironmentstring("APPROVAL_CYCLE")
+		Call s.Setenvironmentvar("APPROVAL_CYCLE", "")
+		If IsNumeric(cycle) Then
+			currCycle = CInt(cycle)
+			Call getStatus
+			Set Status = New Status (getDoc, "StatusNumber")
+		Else
+			currCycle = getDoc.Getitemvalue("totalCycles")(0)
+			Call getStatus
+			Set Status = New Status (getDoc, "StatusNumber")
+			If status.GetCurrentStatusNumber() = "200" Or getDoc.Getitemvalue("totalCycles")(0) = 0 Or status.GetCurrentStatusNumber() = "300" Or status.GetCurrentStatusNumber() = "400" Then
+				currCycle = getDoc.Getitemvalue("totalCycles")(0) + 1
+				Call getDoc.replaceItemvalue("totalCycles", currCycle)
+				Call setValue("totalCycles", currCycle)
+				If getVisasByStatus("000").count() < 1 Then newCycle = True
+				
+				Call setFirstStatus()
+			Else
+				currCycle = getDoc.Getitemvalue("totalCycles")(0)
+				Call setValue("totalCycles", currCycle)
+				If getVisasByCurrentCycle().count() < 1 Then newCycle = True
+			End If
+		End If
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function moveToStatus
+	' Boolean
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function moveToStatus (statusNumber As String) As Boolean
+		Const FuncName = {moveToStatus}
+		On Error GoTo ErrH
+		
+		Dim appDoc As NotesDocument
+		Set appDoc = APL_getDocumentByUNID(getDoc.Getitemvalue("UNID")(0))
+		
+		
+		If statusNumber = "100" Then
+			Call appDoc.replaceItemValue(currCycle & "_urgent", getDoc.Getitemvalue("urgent"))
+			Call appDoc.save(True, False)
+			Call updatelinkInfo
+		End If
+		
+		Call appDoc.replaceItemValue("StatusNumber", getDoc.getItemValue("StatusNumber"))
+		Call appDoc.replaceItemValue("StatusEn", getDoc.getItemValue("StatusEn"))
+		Call appDoc.replaceItemValue("StatusRu", getDoc.getItemValue("StatusRu"))
+		Call appDoc.replaceItemValue("StatusDate", getDoc.getItemValue("StatusDate"))
+		Call appDoc.replaceItemValue("StatusIcon", getDoc.getItemValue("StatusIcon"))
+		If statusNumber = "100" then
+			Call appDoc.replaceItemValue(currCycle & "_urgent", getDoc.Getitemvalue("urgent"))
+			Call updatelinkInfo
+		End IF
+		Set status = New Status(appDoc, "StatusNumber")		
+		moveToStatus = status.MoveToStatus(StatusNumber)
+		'	Call realDoc.Save(True, False)
+		Call refreshStatus(appDoc)
+		
+		Call querySave
+		
+		If status.GetCurrentStatusNumber() = "200" Or status.GetCurrentStatusNumber() = "300" Or status.GetCurrentStatusNumber() = "400" Then Call createReport 
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function canEdit
+	' Boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function canEdit As Boolean
+		Const FuncName = {canEdit}
+		On Error GoTo ErrH
+
+		If status.GetCurrentStatusNumber() = "000" Or status.GetCurrentStatusNumber() = "100" Then canEdit = true
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function querySave
+	' Boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function querySave As Boolean
+		Const FuncName = {querySave}
+		On Error GoTo ErrH
+
+		saved = True
+
+		Call updateCycleInfo
+		Call updateLinkInfo
+		
+		'		Set appDoc = APL_getDocumentByUNID(getDoc.Getitemvalue("UNID")(0))
+		'		Call appDoc.Replaceitemvalue(currCycle & "StatusNumber", getDoc.getItemValue("StatusNumber"))
+		'		Call appDoc.Replaceitemvalue(currCycle & "StatusRu", getDoc.getItemValue("StatusRu"))
+		'		Call appDoc.Replaceitemvalue(currCycle & "StatusEn", getDoc.getItemValue("StatusEn"))
+		'		Call appDoc.Replaceitemvalue(currCycle & "StatusDate", getDoc.getItemValue("StatusDate"))
+		'		Call appDoc.Replaceitemvalue(currCycle & "StatusIcon", getDoc.getItemValue("StatusIcon"))
+		'		
+		'		Call appDoc.replaceItemValue(currCycle & "Comment", getDoc.getItemValue("Comment"))
+		'		Call appDoc.replaceItemValue(currCycle & "ExecutorRu", getDoc.Getitemvalue("ExecutorRu"))
+		'		Call appDoc.replaceItemValue(currCycle & "ExecutorEn", getDoc.Getitemvalue("ExecutorEn"))
+		'		Call appDoc.replaceItemValue(currCycle & "ExecutorUNID", getDoc.Getitemvalue("ExecutorUNID"))
+		'		Call appDoc.replaceItemValue(currCycle & "ExecutorLN", getDoc.Getitemvalue("ExecutorLN"))
+		
+		querySave = save
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function queryClose
+	' Boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function queryClose As Boolean
+		Const FuncName = {queryClose}
+		On Error GoTo ErrH
+
+		queryClose = saved
+		If Not queryClose Then
+			queryClose = visas.deleteAllObjects()
+		Else
+			Dim appDoc As NotesDocument
+			Set appDoc = APL_getDocumentByUNID(getDoc.Getitemvalue("UNID")(0))
+			
+			Call appDoc.Replaceitemvalue(currCycle & "_StatusNumber", getDoc.getItemValue("StatusNumber"))
+			Call appDoc.Replaceitemvalue(currCycle & "_StatusRu", getDoc.getItemValue("StatusRu"))
+			Call appDoc.Replaceitemvalue(currCycle & "_StatusEn", getDoc.getItemValue("StatusEn"))
+			Call appDoc.Replaceitemvalue(currCycle & "_StatusDate", getDoc.getItemValue("StatusDate"))
+			Call appDoc.Replaceitemvalue(currCycle & "_StatusIcon", getDoc.getItemValue("StatusIcon"))
+			
+			Call appDoc.Replaceitemvalue("TotalCycles", getDoc.getItemValue("TotalCycles"))
+			
+			Call appDoc.replaceItemValue(currCycle & "_Comment", getDoc.getItemValue("Comment"))
+			Call appDoc.replaceItemValue(currCycle & "_ExecutorRu", getDoc.Getitemvalue("ExecutorRu"))
+			Call appDoc.replaceItemValue(currCycle & "_ExecutorEn", getDoc.Getitemvalue("ExecutorEn"))
+			Call appDoc.replaceItemValue(currCycle & "_ExecutorUNID", getDoc.Getitemvalue("ExecutorUNID"))
+			Call appDoc.replaceItemValue(currCycle & "_ExecutorLN", getDoc.Getitemvalue("ExecutorLN"))
+			Call appDoc.replaceItemValue(currCycle & "_urgent", getDoc.Getitemvalue("urgent"))
+			
+			If newCycle then
+				Call appDoc.replaceItemValue(currCycle & "_DescriptionRu", getDoc.getItemValue(currCycle & "_DescriptionRu")(0))
+				Call appDoc.replaceItemValue(currCycle & "_DescriptionEn", getDoc.getItemValue(currCycle & "_DescriptionEn")(0))
+				Call appDoc.replaceItemValue(currCycle & "_Subject", getDoc.getItemValue(currCycle & "_Subject")(0))
+				Call appDoc.replaceItemValue(currCycle & "_CreatorRu", getDoc.getItemValue(currCycle & "_CreatorRu")(0))
+				Call appDoc.replaceItemValue(currCycle & "_CreatorLn", getDoc.getItemValue(currCycle & "_CreatorLn")(0))
+				Call appDoc.replaceItemValue(currCycle & "_CreatorEn", getDoc.getItemValue(currCycle & "_CreatorEn")(0))
+				Call appDoc.replaceItemValue(currCycle & "_templateUNID", getDoc.getItemValue(currCycle & "_templateUNID")(0))
+				Call appDoc.replaceItemValue(currCycle & "_templateName", getDoc.getItemValue(currCycle & "_templateName")(0))
+				Call appDoc.replaceItemValue(currCycle & "_CreateDate", getDoc.getItemValue(currCycle & "_CreateDate")(0))
+			End If
+			
+			Call appDoc.Save(True, False)
+			
+		End If
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setStageInfo
+	' Boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function setStageInfo As Boolean
+		Const FuncName = {setStageInfo}
+		On Error GoTo ErrH
+
+		setStageInfo = True
+		If status.GetCurrentStatusNumber() <> "100" Then GoTo EndH
+		If currCycle <> getDoc.getItemValue("TotalCycles")(0) Then GoTo endh
+		Dim dc As NotesDocumentCollection
+		Dim doc As NotesDocument
+		Dim visa As Visa
+		Dim key (0 To 2) As String
+		key(0) = getDoc.getItemValue("UNID")(0)
+		key(1) = CStr(currCycle)
+		key(2) = "100"
+		Set dc = APL_getDb().Getview(VISA_BY_APPROVALCYCLE_STATUSNUMBER_VIEW).Getalldocumentsbykey(key) 
+		
+		Dim persLN As Variant
+		Dim perLN As Variant
+		Dim visaLN As Variant
+		Dim expLN As Variant
+		
+		Set doc = dc.Getfirstdocument()
+		While Not doc Is Nothing
+			Set visa = New Visa(doc)
+			visaLN =  visa.getPersonsLNNames()
+			If UBound(visaLN) > 0 Then
+				persLN = ArrayAppendArray(persLN, visaLN)
+			Else
+				perLN = ArrayAppendArray(perLN, visaLN)
+			End If 
+			expLN = ArrayAppendElement(expLN, visa.getExpertLNName())
+			Set doc = dc.Getnextdocument(doc)
+		Wend
+		
+		getDoc.ReplaceItemValue("multiVisa", persLN).saveToDisk = False
+		getDoc.ReplaceItemValue("currVisa", perLN).saveToDisk = False
+		getDoc.ReplaceItemValue("currExp", expLN).saveToDisk = False
+		Call getDoc.replaceItemValue("currStage", dc.Getfirstdocument().Getitemvalue("VisaStage"))
+		
+		Call setCommentInfo
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getVisasByStage
+	' Variant
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function getVisasByStage (stage As Integer) As ObjectCollection
+		Const FuncName = {getVisasByStage}
+		On Error GoTo ErrH
+
+		Dim key (0 To 2) As String
+		key(0) = getDoc.getItemValue("UNID")(0)
+		key(1) = CStr(getDoc.getItemValue("totalCycles")(0))
+		key(2) = CStr(stage)
+		Dim dc As NotesDocumentCollection
+		Dim doc As NotesDocument
+		Dim objcol As New ObjectCollection
+		Dim visa As Visa
+		
+		Set dc = APL_getDb().getView(VISA_BY_APPROVALCYCLESTAGE_VIEW).Getalldocumentsbykey(key)
+		
+		Set doc = dc.Getfirstdocument()
+		While Not doc Is Nothing
+			Set visa = New Visa(doc)
+			Call objCol.addObject(visa)
+			Set doc = dc.Getnextdocument(doc)
+		Wend
+		Set getVisasByStage = objCol
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function approve
+	' Boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function approve As Boolean
+		Const FuncName = {approve}
+		On Error GoTo ErrH
+		
+		Call saveComment(false)
+		Dim visa As Visa
+		Set visa = getCurrentUserVisa()
+		If visa Is Nothing Then GoTo Endh
+		
+		Call visa.moveToStatus("200")
+		
+		Dim visas As ObjectCollection
+		Set visas = getVisasByStatus("100")
+		
+		If visas.count() = 0 Then Call moveToNextStage(true)
+		Call updateLinkInfo()
+		approve = true
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function decline
+	' Boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function decline As Boolean
+		Const FuncName = {decline}
+		On Error GoTo ErrH
+
+		If not saveComment(True) Then GoTo endH
+		Dim visa As Visa
+		Set visa = getCurrentUserVisa()
+		If visa Is Nothing Then GoTo Endh
+		
+		Call visa.moveToStatus("300")
+		
+		Dim visas As ObjectCollection
+		Set visas = getVisasByStatus("100")
+		
+		If visas.count() < 1 Then Call moveToNextStage(false)
+		Call updateLinkInfo()
+		decline = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getCurrentUserVisa
+	' Visa
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function getCurrentUserVisa As Visa
+		Const FuncName = {getCurrentUserVisa}
+		On Error GoTo ErrH
+
+		Dim s As New NotesSession
+		Dim visas As ObjectCollection
+		Dim visa As Visa
+		Set visas = getVisasByStage(CInt(getDoc.getitemValue("currStage")(0)))
+		
+		Set visa = visas.getFirstObject()
+		While Not visa Is Nothing
+			If visa.usersVisa(s.userName) Then
+				Set getCurrentUserVisa = visa
+				GoTo Endh
+			End If
+			Set visa = visas.getNextObject()
+		Wend
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getApprovingVisas
+	' Objectcollection
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function getVisasByStatus(statusNumber As String) As ObjectCollection
+		Const FuncName = {getApprovingVisas}
+		On Error GoTo ErrH
+
+		Dim objCol As New ObjectCollection
+		Dim dc As NotesDocumentCollection
+		Dim doc As NotesDocument
+		Dim visa As Visa
+		
+		Dim key (0 To 2) As String
+		key(0) = getDoc.GetItemValue("UNID")(0)
+		key(1) = CStr(currCycle)
+		key(2) = statusNumber
+		
+		Set dc = APL_getDb.Getview(VISA_BY_APPROVALCYCLE_STATUSNUMBER_VIEW).Getalldocumentsbykey(key)
+		Set doc = dc.Getfirstdocument()
+		While Not doc Is Nothing
+			Set visa = New Visa(doc)
+			Call objCol.addObject(visa)
+			Set doc = dc.getNextDocument(doc)
+		Wend
+		
+		Set getVisasByStatus = objCol
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function moveToNextStage
+	' Boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function moveToNextStage (success As Boolean) As Boolean
+		Const FuncName = {moveToNextStage}
+		On Error GoTo ErrH
+
+		Dim visas As ObjectCollection
+		Dim visa As Visa
+		'		Set visas = getVisasByStage(CInt(getDoc.GetItemValue("currStage")(0)) + 1)
+		Set visas = getVisasByStage(CInt(getDoc.GetItemValue("currStage")(0)) + 1)
+		
+		If visas.count = 0 Then 
+			If success then
+				Call moveToStatus("200")
+			Else
+				Call moveToStatus("300")
+			End If
+		Else
+			Set visa = visas.getFirstObject()
+			While Not visa Is Nothing
+				Call visa.moveToStatus("100")
+				Set visa = visas.getNextObject()
+			Wend
+		End If
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function updateLinkInfo
+	' Boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function updateLinkInfo As Boolean
+		Const FuncName = {updateLinkInfo}
+		On Error GoTo ErrH
+
+		Dim linkdb As NotesDatabase
+		Dim link As NotesDocument
+		Dim linkdc As NotesDocumentCollection
+		Dim key (0 To 1) As String
+		
+		key(0) = getDoc.getItemValue("UNID")(0)
+		key(1) = CStr(currCycle) 
+		Set linkDb = DBT_GetDbBySearchKey("ВИЗИРОВАНИЕ")
+		
+		Set linkDc = linkDb.Getview("(linkToApprovalByAppUNID&Cycle)").Getalldocumentsbykey(key)
+
+		If linkDc.count > 1 Then Error 5012, "Найдено более одной ссылки на данный цикл"
+		
+		Set link = linkDc.Getfirstdocument()
+		
+		If link Is Nothing Then
+			Dim unid As String
+			Set link = linkDb.Createdocument()
+			Call link.Replaceitemvalue("form", "linkToApproval")
+			Call link.Replaceitemvalue("UNID", link.Universalid)
+			Call link.Replaceitemvalue("ApprovalUNID", getDoc.GetItemValue("UNID")(0))
+			Call link.ReplaceItemValue("ApprovalSearchKey","APPROVAL")
+			Call link.ReplaceItemValue("CycleNumber", currCycle)
+			unid = mainDoc.Getitemvalue("UNID")(0)
+			If unid = "" Then unid = mainDoc.Universalid
+			Call link.ReplaceItemValue("ExternalDocUNID", unid)
+			Call link.ReplaceItemValue("ExternalDbSearchKey",getDoc.getItemValue("ExtDbSearchKey")(0))
+			Call link.ReplaceItemValue("ExternalDocDb",mainDb.Filepath)
+			Call link.ReplaceItemValue("ExternalDocReplicaID", mainDb.Replicaid)
+			Call link.ReplaceItemValue("AuthorRus",getItemValue("creatorRu"))
+			Call link.ReplaceItemValue("Executor",getItemValue("ExecutorRu"))
+			Call link.ReplaceItemValue("urgent",getItemValue("urgent"))
+			Call link.Replaceitemvalue("Date", Now)
+			Call link.Replaceitemvalue("Subject", getItemValue("Subject"))
+			
+			link.replaceItemValue("authors", "[LinkEditor]").isAuthors = True
+			
+			Call link.Replaceitemvalue("DescriptionEn", getItemValue("DescriptionEn"))
+			Call link.Replaceitemvalue("DescriptionRu", getItemValue("DescriptionRu"))			
+		End If
+		Dim pers As Variant
+		pers = getRusNamesByVisaStatus("100")
+		Call link.ReplaceItemValue("VisaListRus",pers)
+		pers = getLNNamesByVisaStatus("100")
+		Call link.ReplaceItemValue("VisaListLN",pers)
+		pers = getRusNamesByVisaStatus("200")
+		'	pers = ArrayAppendArray(pers, getRusNamesByVisaStatus("300"))
+		Call link.ReplaceItemValue("AllreadyVisaRus",pers)
+		pers = getRusNamesByVisaStatus("000")
+		Call link.ReplaceItemValue("WillVisaRus",pers)
+		
+		Call link.ReplaceItemValue("Status", getDoc.getItemValue("StatusRu")(0))
+		Call link.ReplaceItemValue("StatusEn", getDoc.getItemValue("StatusEn")(0))
+		Call link.ReplaceItemValue("StatusNumber", getDoc.getItemValue("StatusNumber")(0))
+		Call link.Save(True, False)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getRusNamesByVisaStatus
+	' Variant
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function getRusNamesByVisaStatus(statusNumber As String) As Variant
+		Const FuncName = {getRusNamesByVisaStatus}
+		On Error GoTo ErrH
+
+		Dim pers As Variant
+		Dim visas As ObjectCollection
+		Dim visa As Visa
+		
+		Set visas = getVisasByStatus(statusNumber)
+		Set visa = visas.getFirstObject()
+		While Not visa Is Nothing 
+			pers = ArrayAppendArray(pers, visa.getPersonsRusNames())
+			Set visa = visas.getNextObject()
+		Wend
+		If IsArray(pers) Then pers = FullTrim(pers)
+		getRusNamesByVisaStatus = pers
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getLNNamesByVisaStatus
+	' Variant
+	' DCS-Olympiev Dec 19, 2018
+	' *********************************************************************************
+	Function getLNNamesByVisaStatus(statusNumber As String) As Variant
+		Const FuncName = {getLNNamesByVisaStatus}
+		On Error GoTo ErrH
+
+		Dim pers As Variant
+		Dim visas As ObjectCollection
+		Dim visa As Visa
+		
+		Set visas = getVisasByStatus(statusNumber)
+		Set visa = visas.getFirstObject()
+		While Not visa Is Nothing 
+			pers = ArrayAppendArray(pers, visa.getPersonsLNNames())
+			Set visa = visas.getNextObject()
+		Wend
+		If IsArray(pers) Then pers = FullTrim(pers)
+		getLNNamesByVisaStatus = pers
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function updateCycleInfo
+	' Variant
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function updateCycleInfo
+		Const FuncName = {updateCycleInfo}
+		On Error GoTo ErrH
+
+		'		Call replaceItemValue("Comment", getDoc.getItemValue("Comment"))
+		'		Call replaceItemValue("ExecutorRu", getDoc.Getitemvalue("ExecutorRu"))
+		'		Call replaceItemValue("ExecutorEn", getDoc.Getitemvalue("ExecutorEn"))
+		'		Call replaceItemValue("ExecutorUNID", getDoc.Getitemvalue("ExecutorUNID"))
+		'		Call replaceItemValue("ExecutorLN", getDoc.Getitemvalue("ExecutorLN"))
+		
+		Call replaceItemValue("Comment", getDoc.getItemValue("Comment"))
+		Call replaceItemValue("ExecutorRu", getDoc.Getitemvalue("ExecutorRu"))
+		Call replaceItemValue("ExecutorEn", getDoc.Getitemvalue("ExecutorEn"))
+		Call replaceItemValue("ExecutorUNID", getDoc.Getitemvalue("ExecutorUNID"))
+		Call replaceItemValue("ExecutorLN", getDoc.Getitemvalue("ExecutorLN"))
+		
+		Call setStatus
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function removeMe
+	' Boolean
+	' DCS-Olympiev Nov 8, 2018
+	' *********************************************************************************
+	Function removeMe() As Boolean
+		Const FuncName = {removeMe}
+		On Error GoTo ErrH
+
+		Call getDoc.replaceItemValue("deleted", "1")
+		Call save()
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function save
+	' Variant
+	' DCS-Olympiev Nov 9, 2018
+	' *********************************************************************************
+	Function save() As Boolean
+		Const FuncName = {save}
+		On Error GoTo ErrH
+
+		'		If Not appdoc Is Nothing Then 
+		'			save = appDoc.save(True,False)
+		'		Else
+		'			MsgBox "NO SAVE"
+		'		End If 
+		saved = true
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setCycle
+	' Boolean
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function setCycle (cycle As Integer) As Boolean
+		Const FuncName = {setCycle}
+		On Error GoTo ErrH
+
+		currCycle = cycle
+		setCycle = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getVisasByCurrentCycle
+	' Objectcollection
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function getVisasByCurrentCycle As ObjectCollection
+		Const FuncName = {getVisasByCurrentCycle}
+		On Error GoTo ErrH
+
+		Dim key (0 To 1) As String
+		key(0) = getDoc.getItemValue("UNID")(0)
+		key(1) = CStr(currCycle)
+
+		Dim dc As NotesDocumentCollection
+		Dim doc As NotesDocument
+		Dim objcol As New ObjectCollection
+		Dim visa As Visa
+		
+		Set dc = APL_getDb().getView(VISA_BY_APPROVALCYCLESTAGE_VIEW).Getalldocumentsbykey(key)
+		
+		Set doc = dc.Getfirstdocument()
+		While Not doc Is Nothing
+			Set visa = New Visa(doc)
+			Call objCol.addObject(visa)
+			Set doc = dc.Getnextdocument(doc)
+		Wend
+		Set getVisasByCurrentCycle = objCol
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function moveToStatusMainDoc
+	' Boolean
+	' AppStatus может быть: 
+	' 1 - Черновик
+	' 2 - Подготовка
+	' 3 - Подготовлен
+	' 4 - Согласование
+	' 5 - Согласован
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function moveToStatusMainDoc (AppStatus As String) As Boolean
+		Const FuncName = {moveToStatusMainDoc}
+		On Error GoTo ErrH
+
+		Dim docType As DocumentType
+		Set docType = getDocType
+		' access to main doc
+		Dim lnNames As Variant
+		Dim visa As Visa
+		Dim visaCol As ObjectCollection
+
+		Set visaCol = getVisasByCurrentCycle
+		Set visa = visaCol.getFirstObject
+		lnNames = visa.getPersonsLNNames()
+		While Not visa Is Nothing
+			lnNames = ArrayAppend(lnNames, visa.getPersonsLNNames())
+			Set visa = visaCol.getNextObject
+		Wend
+		lnNames = ArrayAppend(lnNames, Getitemvalue("ExecutorLN")(0))
+		lnNames = FullTrim(lnNames)
+		mainDoc.Replaceitemvalue("approvalAuthors", lnNames).Isauthors = True
+		
+		
+		Dim status As New Status(mainDoc, docType.getStatusField())
+		
+		moveToStatusMainDoc = status.MoveToStatus(status.getApprovalStatus(AppStatus))
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getDocType
+	' Documenttype
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function getDocType As DocumentType
+		Const FuncName = {getDocType}
+		On Error GoTo ErrH
+
+		Set getDocType = ARO_getDocumentType(mainDoc)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function moveMainDocToDraft
+	' Boolean
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function moveMainDocToDraft As Boolean
+		Const FuncName = {moveMainDocToDraft}
+		On Error GoTo ErrH
+
+		moveMainDocToDraft = moveToStatusMainDoc(1)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function moveMainDocToApproved
+	' Boolean
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function moveMainDocToApproved As Boolean
+		Const FuncName = {moveMainDocToApproved}
+		On Error GoTo ErrH
+
+		moveMainDocToApproved= moveToStatusMainDoc(5)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function moveMainDocToApproving
+	' Boolean
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function moveMainDocToApproving As Boolean
+		Const FuncName = {moveMainDocToApproving}
+		On Error GoTo ErrH
+
+		moveMainDocToApproving = moveToStatusMainDoc(4)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function moveMainDocToPrepared
+	' Boolean
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function moveMainDocToPrepared As Boolean
+		Const FuncName = {moveMainDocToPrepared}
+		On Error GoTo ErrH
+
+		moveMainDocToPrepared = moveToStatusMainDoc(3)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function moveMainDocToPreparation
+	' Boolean
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function moveMainDocToPreparation As Boolean
+		Const FuncName = {moveMainDocToPreparation}
+		On Error GoTo ErrH
+
+		moveMainDocToPreparation = moveToStatusMainDoc(2)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function saveComment
+	' Boolean
+	' DCS-Olympiev Nov 19, 2018
+	' *********************************************************************************
+	Function saveComment(IsNeed As boolean) As Boolean
+		Const FuncName = {saveComment}
+		On Error GoTo ErrH
+
+		Dim comment As String	
+		Dim visa As Visa
+		
+		comment = getDoc.Getitemvalue("visaComment")(0)
+
+		If comment = "" & isNeed Then
+			MsgBox "Не оставлен комментарий"
+			saveComment = False
+			GoTo Endh
+		End If
+		Set visa = getCurrentUserVisa
+		saveComment = visa.setComment(comment)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setCommentInfo
+	' Variant
+	' DCS-Olympiev Nov 19, 2018
+	' *********************************************************************************
+	Function setCommentInfo() As String
+		Const FuncName = {setCommentInfo}
+		On Error GoTo ErrH
+
+		Dim visa As Visa
+		Dim comment As String
+		Set visa = getCurrentUserVisa()
+		If Not visa Is Nothing Then
+			comment = visa.getComment
+			getDoc.replaceItemValue("visaComment", comment).saveToDisk = False
+		Else
+			Set visa = getCurrentExpertVisas.getFirstObject()
+			If Not visa Is Nothing Then
+				comment = visa.getCommentExp
+				getDoc.replaceItemValue("visaComment", comment).saveToDisk = False
+			End If
+		End If
+		
+		setCommentInfo = comment
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setExecutor
+	' Boolean
+	' DCS-Olympiev Nov 20, 2018
+	' *********************************************************************************
+	Function setExecutor (doc As NotesDocument) As Boolean
+		Const FuncName = {setExecutor}
+		On Error GoTo ErrH
+
+		Call getDoc.replaceItemValue("ExecutorRu", doc.Getitemvalue("Caller")(0))
+		Call getDoc.replaceItemValue("ExecutorEn", doc.Getitemvalue("CallerEn")(0))
+		Call getDoc.replaceItemValue("ExecutorUNID", doc.UniversalID)
+		Call getDoc.replaceItemValue("ExecutorLN", doc.Getitemvalue("NotesAddress")(0))
+
+		setExecutor = True
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setExpert
+	' Boolean
+	' DCS-Olympiev Nov 21, 2018
+	' *********************************************************************************
+	Function setExpert (expert As notesdocument) As Boolean
+		Const FuncName = {setExpert}
+		On Error GoTo ErrH
+
+		Dim visa As Visa
+		Dim expertCount As Integer
+		
+		Set visa = getCurrentUserVisa()
+		Dim lnNames As Variant
+		lnNames = mainDoc.getItemValue("approvalReaders")
+		lnNames = ArrayAppend(lnNames, expert.Getitemvalue("NotesAddress"))
+		lnNames = FullTrim(lnNames)
+		mainDoc.Replaceitemvalue("approvalReaders", lnNames).Isreaders = True
+		Call mainDoc.Save(True, False)
+		setExpert = visa.setExpert(Expert)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	
+	' Library ApprovalLib -> Function setCommentExp
+	' Boolean
+	' DCS-Olympiev Nov 21, 2018
+	' *********************************************************************************
+	Function setCommentExp As Boolean
+		Const FuncName = {setCommentExp}
+		On Error GoTo ErrH
+
+		Dim comment As String	
+		Dim visas As ObjectCollection
+		Dim visa As Visa
+		Dim visaDoc As NotesDocument
+		
+		comment = getDoc.getItemValue("visaComment")(0)
+		If comment = "" Then
+			MsgBox "Не оставлен комментарий"
+			setCommentExp = False
+		End If
+		Set visas = getCurrentExpertVisas
+		Set visa = visas.getFirstObject()
+		While Not visa Is Nothing
+			Call visa.setCommentExp(Comment)
+			Set visa = visas.getNextObject()
+		Wend
+		
+		setCommentExp = True
+
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getCurrentExpertVisas
+	' Variant
+	' DCS-Olympiev Nov 21, 2018
+	' *********************************************************************************
+	Function getCurrentExpertVisas As ObjectCollection
+		Const FuncName = {getCurrentExpertVisas}
+		On Error GoTo ErrH
+
+		Dim visas As New ObjectCollection
+		Dim visa As Visa
+		Dim res As New ObjectCollection
+		Dim s As New NotesSession
+		
+		Set visas = getVisasByStage(CInt(getDoc.getitemValue("currStage")(0)))
+		
+		Set visa = visas.getFirstObject()
+		While Not visa Is Nothing
+			If visa.expertsVisa(s.userName) And visa.waitingExpert Then
+				Call res.addObject(visa)
+			End If
+			Set visa = visas.getNextObject()
+		Wend 
+		
+		Set getCurrentExpertVisas = res
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function finishExp
+	' Boolean
+	' DCS-Olympiev Nov 21, 2018
+	' *********************************************************************************
+	Function finishExp As Boolean
+		Const FuncName = {finishExp}
+		On Error GoTo ErrH
+
+		Dim visas As ObjectCollection
+		Dim visa As Visa
+		Dim visaDoc As NotesDocument
+		Dim comment As String
+		
+		comment = getDoc.Getitemvalue("visaComment")(0)
+		If comment = "" Then
+			MsgBox "Не оставлен комментарий"
+			finishExp = False
+		End If
+		Set visas = getCurrentExpertVisas
+		Set visa = visas.getFirstObject()
+		While Not visa Is Nothing
+			Call visa.finishExp(Comment)
+			Set visa = visas.getNextObject()
+		Wend
+		
+		finishExp = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getStatus
+	' Boolean
+	' DCS-Olympiev Nov 23, 2018
+	' *********************************************************************************
+	Function getStatus As Boolean
+		Const FuncName = {getStatus}
+		On Error GoTo ErrH
+		
+		Call getDoc.replaceItemValue("StatusNumber", getItemValue("StatusNumber"))
+		Call getDoc.replaceItemValue("StatusEn", getItemValue("StatusEn"))
+		Call getDoc.replaceItemValue("StatusRu", getItemValue("StatusRu"))
+		Call getDoc.replaceItemValue("StatusDate", getItemValue("StatusDate"))
+		Call getDoc.replaceItemValue("StatusIcon", getItemValue("StatusIcon"))
+		
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setStatus
+	' Boolean
+	' DCS-Olympiev Nov 23, 2018
+	' *********************************************************************************
+	Function setStatus As Boolean
+		Const FuncName = {setStatus}
+		On Error GoTo ErrH
+
+		Call replaceItemValue("StatusNumber", getDoc.getItemValue("StatusNumber"))
+		Call replaceItemValue("StatusEn", getDoc.getItemValue("StatusEn"))
+		Call replaceItemValue("StatusRu", getDoc.getItemValue("StatusRu"))
+		Call replaceItemValue("StatusDate", getDoc.getItemValue("StatusDate"))
+		Call replaceItemValue("StatusIcon", getDoc.getItemValue("StatusIcon"))
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getToConsider
+	' Boolean
+	' DCS-Olympiev Nov 26, 2018
+	' *********************************************************************************
+	Function getToConsider As Boolean
+		Const FuncName = {getToConsider}
+		On Error GoTo ErrH
+
+		Dim visa As Visa
+		Set visa = getCurrentUserVisa()
+		If visa Is Nothing Then 
+			getToConsider = False
+			GoTo EndH
+		End If
+		getToConsider = visa.choosePerson()
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function refreshStatus
+	' Boolean
+	' DCS-Olympiev Nov 29, 2018
+	' *********************************************************************************
+	Function refreshStatus(appDoc As notesdocument) As Boolean
+		Const FuncName = {refreshStatus}
+		On Error GoTo ErrH
+
+		Call getDoc.replaceItemValue("StatusNumber", appDoc.Getitemvalue("StatusNumber"))
+		Call getDoc.replaceItemValue("StatusEn", appDoc.Getitemvalue("StatusEn"))
+		Call getDoc.replaceItemValue("StatusRu", appDoc.Getitemvalue("StatusRu"))
+		Call getDoc.replaceItemValue("StatusDate", appDoc.Getitemvalue("StatusDate"))
+		Call getDoc.replaceItemValue("StatusIcon", appDoc.Getitemvalue("StatusIcon"))
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setFirstStatus
+	' Boolean
+	' DCS-Olympiev Nov 29, 2018
+	' *********************************************************************************
+	Function setFirstStatus As Boolean
+		Const FuncName = {setFirstStatus}
+		On Error GoTo ErrH
+
+		Dim appDoc As NotesDocument
+		Set appDoc = APL_getDocumentByUNID(getDoc.getItemValue("UNID")(0))
+
+		Set status = New Status(appDoc, "StatusNumber")
+		Call status.setFirstStatus()
+		Call refreshStatus(appDoc)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setValue
+	' Boolean
+	' DCS-Olympiev Nov 30, 2018
+	' *********************************************************************************
+	Function setValue(itmName As String, value As Variant)As Boolean
+		Const FuncName = {setValue}
+		On Error GoTo ErrH
+
+		Dim appDoc As NotesDocument
+		Set appDoc = APL_getDocumentByUNID(getDoc.getItemValue("UNID")(0))
+		Call appDoc.Replaceitemvalue(itmName, value)
+		setValue = appDoc.Save(True, false)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getName
+	' String
+	' DCS-Olympiev Dec 1, 2018
+	' *********************************************************************************
+	Function getName() As String
+		Const FuncName = {getName()}
+		On Error GoTo ErrH
+
+		getName = getItemValue("DescriptionRu")(0) & " " & getItemValue("Subject")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getLink
+	' NotesDocument
+	' DCS-Olympiev Dec 1, 2018
+	' *********************************************************************************
+	Function getLink() As NotesDocument
+		Const FuncName = {getLink}
+		On Error GoTo ErrH
+
+		
+		Dim linkdc As NotesDocumentCollection
+		Dim link As NotesDocument
+		Dim key (0 To 1) As String
+		
+		key(0) = getDoc.getItemValue("UNID")(0)
+		key(1) = CStr(currCycle) 
+		If linkDb Is Nothing Then Set linkDb = DBT_GetDbBySearchKey("ВИЗИРОВАНИЕ")
+		
+		Set linkDc = linkDb.Getview("(linkToApprovalByAppUNID&Cycle)").Getalldocumentsbykey(key)
+
+		If linkDc.count > 1 Then Error 5012, "Найдено более одной ссылки на данный цикл"
+		
+		Set Link = linkDc.Getfirstdocument()
+		Set getLink = link
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function isUrgent
+	' Boolean
+	' DCS-Olympiev Dec 1, 2018
+	' *********************************************************************************
+	Function isUrgent As Boolean
+		Const FuncName = {isUrgent}
+		On Error GoTo ErrH
+
+		If getItemValue("urgent")(0) = "1" Then isUrgent = True
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function delegate
+	' Boolean
+	' DCS-Olympiev Dec 18, 2018
+	' *********************************************************************************
+	Function delegate (person As Notesdocument) As Boolean
+		Const FuncName = {delegate}
+		On Error GoTo ErrH
+
+		Dim visa As Visa
+		
+		Dim lnNames As Variant
+		lnNames = mainDoc.getItemValue("approvalReaders")
+		lnNames = ArrayAppend(lnNames, person.Getitemvalue("NotesAddress"))
+		lnNames = FullTrim(lnNames)
+		mainDoc.Replaceitemvalue("approvalReaders", lnNames).Isreaders = True
+		Call mainDoc.Save(True, False)
+
+		Set visa = getCurrentUserVisa()
+		delegate = visa.delegate(Person)
+		Call updateLinkInfo()
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function needReApprove
+	' Boolean
+	' DCS-Olympiev Dec 19, 2018
+	' *********************************************************************************
+	Function needReApprove As Boolean
+		Const FuncName = {needReApprove}
+		On Error GoTo ErrH
+		
+		Dim tmpCycle As Integer
+		tmpCycle = currCycle
+		
+		If currCycle < 2 Then Goto EndH 
+		
+		currCycle = currCycle - 1
+		
+		If getItemValue("StatusNumber")(0) <> "300" Then GoTo EndH
+		If getVisasByStatus("300").count() > 1 Then GoTo Endh
+		
+		If  getVisasWithComments(currCycle).count() > 0 Then needReApprove = True
+	
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+		currCycle = tmpCycle
+	End Function
+	' Library ApprovalLib -> Function getVisasWithComments
+	' Variant
+	' DCS-Olympiev Dec 19, 2018
+	' *********************************************************************************
+	Function getVisasWithComments (cycle As Integer) As ObjectCollection
+		Const FuncName = {getVisasWithComments}
+		On Error GoTo ErrH
+
+		Dim tmpCycle As Integer
+		Dim visas As ObjectCollection
+		Dim visa As Visa
+		Dim visasWithComment As New ObjectCollection
+		tmpCycle = currCycle
+		currCycle = cycle
+		Set visas = getVisasByStatus("200")
+		Set visa = visas.getFirstObject()
+		While Not visa Is Nothing
+			If visa.getComment <> "" Then Call visasWithComment.addObject(visa)
+			Set visa = visas.getNextObject()				
+		Wend
+		
+		Set getVisasWithComments = visasWithComment
+		currCycle = tmpCycle
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function createNewCycleReApprove
+	' Boolean
+	' DCS-Olympiev Dec 19, 2018
+	' *********************************************************************************
+	Function createNewCycleReApprove As Boolean
+		Const FuncName = {createNewCycleReApprove}
+		On Error GoTo ErrH
+		Dim s As New NotesSession
+		
+		Call replaceItemValue("CreatorLn", s.userName)
+		Call replaceItemValue("CreatorEn", PD_GetPersonDocByLN(s.userName).getItemValue("CallerEn")(0))
+		Call replaceItemValue("CreateDate", Now)
+		Call replaceItemValue("CreatorRu", PD_GetPersoneRusName(s.userName))
+		Call replaceItemValue("DescriptionRu", getItemValueByCycle("DescriptionRu", currCycle - 1))
+		Call replaceItemValue("DescriptionEn", getItemValueByCycle("DescriptionEn", currCycle - 1))
+		Call replaceItemValue("Subject", getItemValueByCycle("Subject", currCycle - 1))
+		Call replaceItemValue("templateUNID", getItemValueByCycle("templateUNID", currCycle - 1))
+		Call replaceItemValue("templateName", getItemValueByCycle("templateName", currCycle - 1))
+		
+		
+		Call replaceItemValue("ExecutorRu", getItemValueByCycle("ExecutorRu", currCycle - 1))
+		Call replaceItemValue("ExecutorEn", getItemValueByCycle("ExecutorEn", currCycle - 1))
+		Call replaceItemValue("ExecutorUNID", getItemValueByCycle("ExecutorUNID", currCycle - 1))
+		Call replaceItemValue("ExecutorLN", getItemValueByCycle("ExecutorLN", currCycle - 1))
+
+		Dim oldVisas As ObjectCollection
+		Dim visaDoc As NotesDocument
+		Dim visa As Visa
+		Dim oldVisa As visa
+		Dim cStage As Integer
+		Dim nStage As Integer
+		Dim rStage As Integer
+		
+		Set oldVisas = getVisasWithComments(currCycle - 1)	
+
+		Call oldVisas.sort(True)
+		Set oldVisa = oldVisas.getFirstObject()
+		cStage = oldVisa.getStage()
+		rStage = 1
+		While Not oldVisa Is Nothing
+			nStage = oldVisa.getStage()
+			If nStage > cStage Then rStage = rStage + 1
+			Set visaDoc = APL_getDb().Createdocument()
+			Call visaDoc.Replaceitemvalue("form", "visa")
+			Call visaDoc.Replaceitemvalue("UNID", visaDoc.Universalid)
+			Call visaDoc.Replaceitemvalue("ApprovalUNID", getDoc.Getitemvalue("UNID")(0))
+			Set visa = New Visa (visaDoc)
+			Call visa.setCycle(currCycle)
+			Call visa.setStage(rStage)
+			Call visa.setFuncRole(oldVisa.getFuncRole())
+			Call visa.setPerson(PD_GetPersonDocByLN(oldVisa.getPersonsLNNames()(0)))
+			Call visa.save()
+			Set oldVisa = oldVisas.getNextObject()
+		Wend
+		
+		Set visaDoc = APL_getDb().Createdocument()
+		Call visaDoc.Replaceitemvalue("form", "visa")
+		Call visaDoc.Replaceitemvalue("UNID", visaDoc.Universalid)
+		Call visaDoc.Replaceitemvalue("ApprovalUNID", getDoc.Getitemvalue("UNID")(0))
+		Set visa = New Visa (visaDoc)
+		Call visa.setCycle(currCycle)
+		Call visa.setStage(rStage + 1)
+		
+		Dim tmpCycle As Integer
+		
+		tmpCycle = currCycle
+		currCycle = currCycle - 1
+		Set oldVisa = getVisasByStatus("300").getFirstObject()
+		Call visa.setPerson(PD_GetPersonDocByLN(oldVisa.getPersonsLNNames()(0)))
+		currCycle = tmpCycle	
+		Call visa.save()
+		createNewCycleReApprove= True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function createReport
+	' Boolean
+	' DCS-Olympiev Dec 25, 2018
+	' *********************************************************************************
+	Function createReport As Boolean
+	Const FuncName = {createReport}
+	On Error GoTo ErrH
+
+		Dim docType As DocumentType
+		Set docType = getDocType()
+		If docType.needReport then
+
+	Dim reportDoc As NotesDocument
+	Dim respPerson As String
+	Dim execPerson As String
+	Dim whoSign As Variant
+	Dim notSign As Variant
+	Dim allComments As String
+	Dim visas As ObjectCollection
+	Dim visa As Visa
+	Dim i As Integer
+	
+	Set reportDoc = mainDb.Createdocument()
+	Call reportDoc.Replaceitemvalue("form", "wiza")
+	Call reportDoc.Makeresponse(getMainDocument)
+		
+	Call reportDoc.Replaceitemvalue("TypDoc", getDocType.getName())
+	Call reportDoc.Replaceitemvalue("VisaComment", getItemValue("Comment"))
+	Call reportDoc.Replaceitemvalue("Subject", getItemValue("Subject"))
+	Call reportDoc.Replaceitemvalue("Info", "Отчет о визировании от " + Str(Now))
+		
+	If status.GetCurrentStatusNumber() = "400" then	Call reportDoc.Replaceitemvalue("CancelVising", "1")
+	
+	respPerson = getItemValue("CreatorRu")(0)
+	execPerson = getItemValue("ExecutorRu")(0)
+	If execPerson <> "" And execPerson <> respPerson Then respPerson = respPerson & ", " & execPerson
+	Call reportDoc.Replaceitemvalue("RespPerson", respPerson)
+	
+	Set visas = getVisasByCurrentCycle()
+	Call visas.sort(True)
+	Set visa = visas.getFirstObject()
+	While Not visa Is Nothing
+		i = 1
+		If getDoc.getItemValue("delegate_comment")(0) <> "" Then
+			ForAll delegate_info In getDoc.getItemValue("delegate_comment")
+				allcomments = allComments & delegate_info & nLine
+			End ForAll
+			allComments = allComments & nLine
+		End If
+		
+		allcomments = allComments & Left(visa.getDoc.getItemValue("StatusDate")(0), 10) & "		" & visa.getPersonsRusNames()(0)
+		Select Case visa.getDoc.getItemValue("StatusNumber")(0)
+			Case "200"
+				whoSign = ArrayAppendArray(whoSign, visa.getPersonsRusNames())
+				allcomments = allComments & "	подписал(а)"
+			Case "300", "000", "100"
+				notSign = ArrayAppendArray(notSign, visa.getPersonsRusNames())
+				allcomments = allComments & "	не подписал(а)"
+		End Select
+		If visa.getComment() <> "" Then
+			allComments = allComments & nLine & nLine & "Комментарий: " & visa.getComment()
+		End If
+		While visa.getDoc.HasItem(i & "_expLN")
+			allComments = allComments & nLine & nLine & "Комментарий эксперта " & visa.getdoc.getItemValue(i & "_expRu")(0) & ": " & visa.getdoc.getItemValue(i & "_expComment")(0)
+			i = i + 1
+		WEnd
+		allComments = allComments & nLine & nLine & "------------------------------------------------------------------------------------------" & nLine & nLine
+		Set visa = visas.getNextObject()
+	Wend
+	
+		Call reportDoc.Replaceitemvalue("whoSign", whoSign)
+		Call reportDoc.Replaceitemvalue("notSign", notSign)
+		Call reportDoc.Replaceitemvalue("AllComments", allComments)
+	    Call reportDoc.Replaceitemvalue("ContractParty", "")
+	
+		  
+	Call reportDoc.Save(True, false)	
+	
+	
+	Dim respDc As DocumentCollection
+	Dim respDoc As NotesDocument
+	Dim respReport As NotesDocument
+	Set docType = getDocType()
+	Set respDc = docType.getDocumentsForReport(getMainDocument())
+	
+	Set respDoc = respDc.getFirstDocument()
+	While Not respDoc Is Nothing
+		Set respReport = respDoc.Parentdatabase.Createdocument()
+		Call reportDoc.Copyallitems(respReport)
+		Call respReport.Makeresponse(respDoc)
+		Call respReport.Save(True, False)
+		Set respDoc = respDc.getNextDocument()
+	Wend
+
+End If
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getItemValueByCycle
+	' Variant
+	' DCS-Olympiev Dec 21, 2018
+	' *********************************************************************************
+	Function getItemValueByCycle(itmName As String, cycle As Integer) As Variant
+		Const FuncName = {getItemValueByCycle}
+		On Error GoTo ErrH
+
+
+		getItemValueByCycle = getDoc.Getitemvalue(cycle & "_" & itmName)
+
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Sub recalcAccessToMainDoc
+	' 
+	' DCS-Olympiev Jan 31, 2019
+	' *********************************************************************************
+	Sub recalcAccessToMainDoc
+		On Error GoTo ErrH
+
+		Dim lnNames As Variant
+		Dim visa As Visa
+		Dim visaCol As ObjectCollection
+
+		Set visaCol = getVisasByCurrentCycle
+		Set visa = visaCol.getFirstObject
+		lnNames = visa.getPersonsLNNames()
+		While Not visa Is Nothing
+			lnNames = ArrayAppend(lnNames, visa.getPersonsLNNames())
+			Set visa = visaCol.getNextObject
+		Wend
+		lnNames = ArrayAppend(lnNames, Getitemvalue("ExecutorLN")(0))
+		lnNames = FullTrim(lnNames)
+		mainDoc.Replaceitemvalue("approvalAuthors", lnNames).Isauthors = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+EndH:
+	End Sub
+	' Library ApprovalLib -> Function getApprovalTemplate
+	' Approvaltemplate
+	' DCS-Olympiev Jan 25, 2019
+	' *********************************************************************************
+	Function getApprovalTemplate As ApprovalTemplate
+	On Error GoTo ErrH
+
+	Dim appTmplDoc As NotesDocument
+	Dim appTmpl As ApprovalTemplate
+
+	Set appTmplDoc = ARO_getDocumentByUNID(getItemValue("templateUNID")(0))
+	Set appTmpl = New ApprovalTemplate(appTmplDoc)
+	
+	Set getApprovalTemplate = appTmpl
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	End Class
+
+' Library ApprovalLib -> Class visa
+' 
+' DCS-Olympiev Nov 6, 2018
+' *********************************************************************************
+Class Visa As Interface
+	Private className As String
+	Private visaDoc As NotesDocument
+	Private Status As Status
+	Private cycle As Integer
+	Private stage As Integer
+
+	Sub New (doc As NotesDocument)
+		className = {visa}
+		Set visaDoc = doc
+		Set Status = New Status (doc, "StatusNumber")
+	End Sub
+	' Library ApprovalLib -> Function Save
+	' Boolean
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function Save As Boolean
+		Const FuncName = {Save}
+		On Error GoTo ErrH
+
+		save = visaDoc.Save(True, False)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setCycle
+	' Integer
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function setCycle (cycle As Integer) As Integer
+		Const FuncName = {setCycle}
+		On Error GoTo ErrH
+
+		Me.cycle = cycle
+		Call visaDoc.Replaceitemvalue("VisaCycle", cycle)
+		setCycle = Me.cycle
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setStage
+	' Integer
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function setStage (stage As Integer) As Integer
+		Const FuncName = {setStage}
+		On Error GoTo ErrH
+
+		Me.stage = stage
+		Call visaDoc.Replaceitemvalue("VisaStage", stage)
+		setStage = Me.stage
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getStage
+	' Integer
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function getStage As Integer
+		Const FuncName = {getStage}
+		On Error GoTo ErrH
+		
+		If stage = 0 Then stage = getDoc.getItemValue("VisaStage")(0)
+		getStage = stage
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setPersons
+	' Boolean
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function setPersons (pers As DocumentCollection) As Boolean
+		Const FuncName = {setPersons}
+		On Error GoTo ErrH
+
+		Dim person As NotesDocument
+		Set person = pers.getFirstDocument()
+		While Not person Is Nothing
+			Call setPerson(person)
+			Set person = pers.getNextDocument()
+		Wend
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setPerson
+	' Boolean
+	' DCS-Olympiev Nov 6, 2018
+	' *********************************************************************************
+	Function setPerson (person As NotesDocument) As Boolean
+		Const FuncName = {setPerson}
+		On Error GoTo ErrH
+
+		Dim nameRus As Variant
+		Dim nameEng As Variant
+		Dim nameLN As Variant
+		Dim unids As Variant
+		Dim unid As String
+		
+		nameRus = visaDoc.Getitemvalue("VisingRus")
+		nameEng = visaDoc.Getitemvalue("VisingEng")
+		nameLN = visaDoc.Getitemvalue("VisingLN")
+		unids = visaDoc.Getitemvalue("VisingUNID")
+		
+		nameRus = ArrayAppend(nameRus, person.Getitemvalue("Caller")(0))
+		nameEng = ArrayAppend(nameEng, person.Getitemvalue("CallerEn")(0))
+		nameLN = ArrayAppend(nameLN, person.Getitemvalue("NotesAddress")(0))
+		
+		unid = person.Getitemvalue("UNID")(0)
+		If unid = "" Then unid = person.Universalid
+		unids = ArrayAppend(unids, unid)
+		
+		nameRus = FullTrim(nameRus)
+		nameEng = FullTrim(nameEng)
+		nameLN = FullTrim(nameLN)
+		unids = FullTrim(unids)
+		
+		Call visaDoc.Replaceitemvalue("VisingRus", nameRus)
+		Call visaDoc.Replaceitemvalue("VisingEng", nameEng)
+		Call visaDoc.Replaceitemvalue("VisingLN", nameLN)
+		Call visaDoc.Replaceitemvalue("VisingUNID", unids)
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getPersonsLNNames
+	' Variant
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function getPersonsLNNames As Variant
+		Const FuncName = {getPersonsLNNames}
+		On Error GoTo ErrH
+
+		getPersonsLNNames = getDoc.getItemValue("VisingLN")
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getDoc
+	' Variant
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function getDoc As Variant
+		Const FuncName = {getDoc}
+		On Error GoTo ErrH
+
+		Set getDoc = visaDoc
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function moveToStatus
+	' Boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function moveToStatus (statusNumber As String) As Boolean
+		Const FuncName = {moveToStatus}
+		On Error GoTo ErrH
+
+		moveToStatus = status.MoveToStatus(StatusNumber)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function usersVisa
+	' boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function usersVisa (userName As String) As boolean
+		Const FuncName = {usersVisa}
+		On Error GoTo ErrH
+
+		If Not IsNull(ArrayGetIndex(getDoc.GetItemValue("VisingLN"), userName)) Then usersVisa = True
+		If Not IsNull(ArrayGetIndex(getDoc.GetItemValue("VisingLNWait"), userName)) Then usersVisa = True
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getPersonsRusNames
+	' Variant
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function getPersonsRusNames As Variant
+		Const FuncName = {getPersonsRusNames}
+		On Error GoTo ErrH
+
+		getPersonsRusNames = getDoc.getItemValue("VisingRus")
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function removeMe
+	' Boolean
+	' DCS-Olympiev Nov 8, 2018
+	' *********************************************************************************
+	Function removeMe() As Boolean
+		Const FuncName = {removeMe}
+		On Error GoTo ErrH
+
+		Call getDoc.replaceItemValue("deleted", "1")
+		Call save()
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setComment
+	' Boolean
+	' DCS-Olympiev Nov 19, 2018
+	' *********************************************************************************
+	Function setComment (comment As String) As Boolean
+		Const FuncName = {setComment}
+		On Error GoTo ErrH
+		
+		Call getDoc().ReplaceItemValue("Comment", comment)
+		setComment = save()
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getComment
+	' String
+	' DCS-Olympiev Nov 19, 2018
+	' *********************************************************************************
+	Function getComment () As String
+		Const FuncName = {getComment}
+		On Error GoTo ErrH
+
+		getComment = getDoc.getItemValue("Comment")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getCommentExp
+	' String
+	' DCS-Olympiev Nov 22, 2018
+	' *********************************************************************************
+	Function getCommentExp () As String
+		Const FuncName = {getCommentExp}
+		On Error GoTo ErrH
+
+		Dim expName As String
+		Dim  s As New NotesSession
+		
+		expName = s.Username
+		Dim i As Integer
+		i=1
+		If Not getDoc.HasItem(i & "_expLN") Then GoTo Endh
+		While getDoc.HasItem(i & "_expLN")
+			i = i + 1
+		Wend
+		i = i - 1
+		
+		If expName = getDoc.GetItemValue(i & "_expLN")(0) Then getCommentExp = getDoc.GetItemValue(i & "_expComment")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setFuncRole
+	' Boolean
+	' DCS-Olympiev Nov 19, 2018
+	' *********************************************************************************
+	Function setFuncRole (fr As FuncRole) As Boolean
+		Const FuncName = {setFuncRole}
+		On Error GoTo ErrH
+
+		Call getDoc.replaceItemValue("funcRoleRu", fr.getRusName)
+		Call getDoc.replaceItemValue("funcRoleEn", fr.getEngName)
+		Call getDoc.replaceItemValue("funcRoleUNID", fr.UNID())
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setExpert
+	' Boolean
+	' DCS-Olympiev Nov 21, 2018
+	' *********************************************************************************
+	Function setExpert (expert As NotesDocument) As Boolean
+		Const FuncName = {setExpert}
+		On Error GoTo ErrH
+
+		Dim expertCount As Integer
+		
+		expertCount = 1
+		While getDoc().HasItem(expertCount & "_expUNID")
+			expertCount = expertCount + 1
+		Wend
+		
+		Call getDoc.ReplaceItemValue("expStatus","1")
+		Call getDoc.ReplaceItemValue(expertCount & "_expRu",expert.Getitemvalue("Caller")(0))
+		Call getDoc.ReplaceItemValue(expertCount & "_expEn",expert.Getitemvalue("CallerEn")(0))
+		Call getDoc.ReplaceItemValue(expertCount & "_expUNID",expert.UniversalID)
+		Call getDoc.ReplaceItemValue(expertCount & "_expLN",expert.Getitemvalue("NotesAddress")(0))
+		
+		Call getDoc.ReplaceItemValue("VisingLNWait",getDoc.GetitemValue("VisingLN"))
+		Call getDoc.ReplaceItemValue("VisingLN","")
+		
+		setExpert = save()
+		Call runFunction ("MailLib", "ML_sendToExpertBegin", Me,0)
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getExpertLNName
+	' Variant
+	' DCS-Olympiev Nov 21, 2018
+	' *********************************************************************************
+	Function getExpertLNName () As String
+		Const FuncName = {getExpertLNName}
+		On Error GoTo ErrH
+
+		Dim expertCount As Integer
+		
+		'	expertCount = 1
+		'	If Not getDoc.HasItem(expertCount & "_expLN") Then GoTo Endh
+		'	While getDoc().HasItem(expertCount & "_expUNID")
+		'		expertCount = expertCount + 1
+		'	Wend
+		'	
+		'	expertCount = expertCount - 1
+		If getDoc.getItemValue("expStatus")(0) <> "1" Then goto EndH
+		expertCount = getExpertNumber()
+		If expertCount < 0 Then GoTo EndH
+		
+		getExpertLNName = getDoc.getitemValue(expertCount & "_expLN")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setCommentExp
+	' Boolean
+	' DCS-Olympiev Nov 21, 2018
+	' *********************************************************************************
+	Function setCommentExp (comment As String) As Boolean
+		Const FuncName = {setCommentExp}
+		On Error GoTo ErrH
+
+		Dim expertCount As Integer
+		
+		expertCount = getExpertNumber()
+
+		If expertCount < 0 Then GoTo EndH
+
+		Call getDoc.replaceItemValue(expertCount & "_expComment",comment)
+		setCommentExp = save()
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function expertsVisa
+	' Boolean
+	' DCS-Olympiev Nov 21, 2018
+	' *********************************************************************************
+	Function expertsVisa (lnName As String) As Boolean
+		Const FuncName = {expertsVisa}
+		On Error GoTo ErrH
+
+		If getExpertLNName() = lNName Then expertsVisa = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function waitingExpert
+	' Boolean
+	' DCS-Olympiev Nov 21, 2018
+	' *********************************************************************************
+	Function waitingExpert As Boolean
+		Const FuncName = {waitingExpert}
+		On Error GoTo ErrH
+
+		If getDoc.GetItemValue("expStatus")(0) = "1" Then waitingExpert = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function finishExp
+	' Boolean
+	' DCS-Olympiev Nov 21, 2018
+	' *********************************************************************************
+	Function finishExp (Comment As String) As Boolean
+		Const FuncName = {finishExp}
+		On Error GoTo ErrH
+
+		Dim expertCount As Integer
+		
+		expertCount = getExpertNumber()
+		
+		If expertCount < 0 Then GoTo EndH
+
+		Call getDoc.replaceItemValue(expertCount & "_expComment",comment)
+		Call getDoc.replaceItemValue("expStatus","")
+		Call getDoc.ReplaceItemValue("VisingLN", getDoc.GetitemValue("VisingLNWait"))
+		Call getDoc.ReplaceItemValue("VisingLNWait","")
+		
+		finishExp = save()
+		Call runFunction ("MailLib", "ML_sendToExpertFinish", Me,0)
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getExpertNumber
+	' Integer
+	' DCS-Olympiev Nov 22, 2018
+	' *********************************************************************************
+	Function getExpertNumber As Integer
+		Const FuncName = {getExpertNumber}
+		On Error GoTo ErrH
+
+		Dim expertCount As Integer
+		Dim s As New NotesSession
+		Dim expName As String
+		expName = s.UserName
+		If Not getDoc.Hasitem("1_expUNID") Then GoTo EndH	
+		expertCount = 1
+
+		While getDoc().HasItem(expertCount & "_expUNID")
+			If getDoc.GetItemValue(expertCount & "_expLN")(0) = expName Then
+				getExpertNumber = expertCount
+				GoTo EndH
+			End If
+			expertCount = expertCount + 1
+		Wend
+		getExpertNumber = -1
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function choosePerson
+	' Boolena
+	' DCS-Olympiev Nov 26, 2018
+	' *********************************************************************************
+	Function choosePerson As Boolean
+		Const FuncName = {choosePerson}
+		On Error GoTo ErrH
+
+		Dim s As New NotesSession
+		Dim lnName As String
+		Dim rusName As String
+		Dim engName As String
+		Dim unid As String
+		
+		Dim i As Integer
+		
+		lnName = s.Username
+		i = ArrayGetIndex(getDoc.GetItemValue("VisingLN"), lnName)
+		rusName = getDoc.GetItemValue("VisingRus")(i)
+		engName = getDoc.GetItemValue("VisingEng")(i)		
+		unid = getDoc.GetItemValue("VisingUNID")(i)
+		Call getDoc.ReplaceItemValue("VisingLN", lnName)
+		Call getDoc.ReplaceItemValue("VisingRus", rusName)
+		Call getDoc.ReplaceItemValue("VisingEng",engName)
+		Call getDoc.ReplaceItemValue("VisingUNID", unid)
+		
+		ChoosePerson = save()
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getApproval
+	' appRoval
+	' DCS-Olympiev Dec 1, 2018
+	' *********************************************************************************
+	Function getApproval () As Approval
+		Const FuncName = {getApproval}
+		On Error GoTo ErrH
+
+		Dim s As New NotesSession
+		Call s.Setenvironmentvar("APPROVAL_CYCLE", getCycle)
+		Dim doc As NotesDocument
+		Set doc = APL_getDb().Createdocument()
+		Dim appDoc As NotesDocument
+		Set appDoc = APL_getDocumentByUNID(getDoc.getItemValue("ApprovalUNID")(0))
+		Call appDoc.Copyallitems(doc)
+		
+		Set getapproval = New Approval(doc)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function removePersonByLNName
+	' Boolean
+	' DCS-Olympiev Dec 5, 2018
+	' *********************************************************************************
+	Function removePersonByLNName (lnName As String) As Boolean
+		Const FuncName = {removePersonByLNName}
+		On Error GoTo ErrH
+
+		Dim lnNames As Variant
+		Dim rusName As Variant
+		Dim engName As Variant
+		Dim unids As Variant
+		Dim position As Long
+		
+		lnNames = getDoc.getItemValue("VisingLN")
+		rusName = getDoc.getItemValue("VisingRus")
+		engName = getDoc.getItemValue("VisingEng")
+		unids = getDoc.getItemValue("VisingUNID")
+		
+		If IsNull(ArrayGetIndex(lnNames, lnName)) Then GoTo Endh
+		
+		position = ArrayGetIndex(lnNames, lnName)
+
+		unids = ArrayRemovePosition(unids, position)
+		lnNames = ArrayRemovePosition(lnNames, position)
+		rusName = ArrayRemovePosition(rusName, position)
+		engName = ArrayRemovePosition(engName, position)
+		
+		Call getDoc.ReplaceItemValue("VisingLN", lnNames)
+		Call getDoc.ReplaceItemValue("VisingRus", rusName)
+		Call getDoc.ReplaceItemValue("VisingEng",engName)
+		Call getDoc.ReplaceItemValue("VisingUNID", unids)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function removePersonByUNID
+	' Boolean
+	' DCS-Olympiev Dec 7, 2018
+	' *********************************************************************************
+	Function removePersonByUNID (unid As String) As Boolean
+		Const FuncName = {removePersonByUNID}
+		On Error GoTo ErrH
+
+		Dim lnName As Variant
+		Dim rusName As Variant
+		Dim engName As Variant
+		Dim unids As Variant
+		Dim position As Long
+		
+		lnName = getDoc.getItemValue("VisingLN")
+		rusName = getDoc.getItemValue("VisingRus")
+		engName = getDoc.getItemValue("VisingEng")
+		unids = getDoc.getItemValue("VisingUNID")
+		
+		If IsNull(ArrayGetIndex(unids, unid)) Then GoTo Endh
+		
+		position = ArrayGetIndex(unids, unid)
+
+		unids = ArrayRemovePosition(unids, position)
+		lnName = ArrayRemovePosition(lnName, position)
+		rusName = ArrayRemovePosition(rusName, position)
+		engName = ArrayRemovePosition(engName, position)
+		
+		Call getDoc.ReplaceItemValue("VisingLN", lnName)
+		Call getDoc.ReplaceItemValue("VisingRus", rusName)
+		Call getDoc.ReplaceItemValue("VisingEng",engName)
+		Call getDoc.ReplaceItemValue("VisingUNID", unids)
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getPersonsUNIDs
+	' Variant
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function getPersonsUNIDs As Variant
+		Const FuncName = {getPersonsUNIDs}
+		On Error GoTo ErrH
+
+		getPersonsUNIDs = getDoc.getItemValue("VisingUNID")
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function delegate
+	' Boolean
+	' DCS-Olympiev Dec 18, 2018
+	' *********************************************************************************
+	Function delegate (person As NOtesdocument) As Boolean
+		Const FuncName = {delegate}
+		On Error GoTo ErrH
+
+		Dim delegate_comment As Variant
+		delegate_comment = getDoc.getItemValue("delegate_comment")
+		If getDoc.getItemValue("delegate_comment")(0) <> "" Then
+			ReDim Preserve delegate_comment(UBound(getDoc.getItemValue("delegate_comment")) + 1)
+		End If
+		delegate_comment(UBound(delegate_comment)) = {Делегированно с } & getDoc.getItemValue("VisingRus")(0) & { на } & person.Getitemvalue("Caller")(0) & { } & Format(Now,"dd.mm.yyyy hh:NN")
+		Call getDoc.replaceItemValue("delegate_comment", delegate_comment)
+		
+		Call getDoc.ReplaceItemValue("VisingLN", person.Getitemvalue("NotesAddress"))
+		Call getDoc.ReplaceItemValue("VisingRus", person.Getitemvalue("Caller"))
+		Call getDoc.ReplaceItemValue("VisingEng",person.Getitemvalue("CallerEn"))
+		Call getDoc.ReplaceItemValue("VisingUNID", person.Universalid)		
+		
+		delegate = Me.save()
+		If delegate Then
+			Call RunFunction("MailLib", "ML_sendBeginVising", Me, 0)
+		End If
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getValueForSort
+	' Variant
+	' DCS-Olympiev Dec 19, 2018
+	' *********************************************************************************
+	Function getValueForSort As Variant
+		Const FuncName = {getValueForSort}
+		On Error GoTo ErrH
+
+		getValueForSort = getStage()
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function reselectPerson
+	' Variant
+	' DCS-Olympiev Dec 20, 2018
+	' *********************************************************************************
+	Function reselectPerson (person As NotesDocument) As Boolean
+		Const FuncName = {reselectPerson}
+		On Error GoTo ErrH
+
+		Call getDoc.ReplaceItemValue("VisingLN", person.Getitemvalue("NotesAddress"))
+		Call getDoc.ReplaceItemValue("VisingRus", person.Getitemvalue("Caller"))
+		Call getDoc.ReplaceItemValue("VisingEng",person.Getitemvalue("CallerEn"))
+		Call getDoc.ReplaceItemValue("VisingUNID", person.Universalid)		
+		
+		reselectPerson = Me.save()
+		If status.GetCurrentStatusNumber() = "100" Then Call RunFunction("MailLib", "ML_sendBeginVising", Me, 0)
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getFuncRole
+	' Funcrole
+	' DCS-Olympiev Dec 21, 2018
+	' *********************************************************************************
+	Function getFuncRole As FuncRole
+		Const FuncName = {getFuncRole}
+		On Error GoTo ErrH
+
+		Dim fr As New FuncRole (ARO_getDocumentByUNID(getDoc.getitemValue("funcRoleUNID")(0)))
+		Set getFuncRole = fr
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getCycle
+	' Integer
+	' DCS-Olympiev Dec 28, 2018
+	' *********************************************************************************
+	Function getCycle As Integer
+		On Error GoTo ErrH
+
+		If cycle = 0 Then cycle = getDoc.getItemValue("VisaCycle")(0)
+		getCycle = cycle
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getLastExpertLNName
+	' String
+	' DCS-Olympiev Jan 16, 2019
+	' *********************************************************************************
+	Function getLastExpertLNName As String
+		On Error GoTo ErrH
+
+		If getDoc.getItemValue("expStatus")(0) <> "1" Then GoTo EndH
+		Dim expertCount As Integer
+		
+		expertCount = 1
+		If Not getDoc.HasItem(expertCount & "_expLN") Then GoTo Endh
+		While getDoc().HasItem(expertCount & "_expUNID")
+			expertCount = expertCount + 1
+		Wend
+		
+		expertCount = expertCount - 1
+		
+		If expertCount < 1 Then GoTo EndH
+		
+		getLastExpertLNName = getDoc.getitemValue(expertCount & "_expLN")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library ApprovalLib -> Function setSubstituent
+	' Boolean
+	' DCS-Olympiev Jan 25, 2019
+	' *********************************************************************************
+	Function setSubstituent (personDoc As notesdocument) As Boolean
+		On Error GoTo ErrH
+
+		Dim pName As NotesName
+		Dim substComment As Variant
+		Dim i As Integer
+		
+		Call getDoc.replaceItemValue("substLN", getDoc.getItemValue("VisingLN"))
+		Call getDoc.replaceItemValue("substRus",getDoc.getItemValue("VisingRus"))
+		Call getDoc.replaceItemValue("substEng",getDoc.getItemValue("VisingEng"))
+		Call getDoc.replaceItemValue("substUNID",getDoc.getItemValue("VisingUNID"))
+	
+
+		Call getDoc.replaceItemValue("VisingEng", personDoc.getItemValue("CallerEn")(0))
+		If getDoc.getItemValue("VisingEng")(0) = "" Then
+			Set pName = New NotesName(personDoc.getItemValue("NotesAddress")(0))
+			Call getDoc.replaceItemValue("VisingEng",pName.Common)
+		End If
+		Call getDoc.replaceItemValue("VisingRus",personDoc.getItemValue("Caller")(0))
+		Call getDoc.replaceItemValue("VisingLN",personDoc.getItemValue("NotesAddress")(0))
+		Call getDoc.replaceItemValue("VisingUNID",personDoc.Universalid)
+		
+		substComment = getDoc.getItemValue("substComment")
+		i = UBound(substComment) + 1
+		ReDim Preserve substComment(i) As String
+		substComment(i) = "Сотрудник " & getDoc.getItemValue("substRus")(0) & " замещён на " &  getDoc.getItemValue("VisingRus")(0) & " " & Now
+		Call getDoc.replaceItemValue("substComment", FullTrim(substComment))
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getSubstituentLnName
+	' String
+	' DCS-Olympiev Jan 29, 2019
+	' *********************************************************************************
+	Function getSubstituentLnName As String
+		On Error GoTo ErrH
+
+		getSubstituentLnName = getDoc.getItemValue("substLN")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library ApprovalLib -> Function getSubstituent
+	' NotesDocument
+	' DCS-Olympiev Jan 29, 2019
+	' *********************************************************************************
+	Function getSubstituent As NotesDocument
+		On Error GoTo ErrH
+
+		Set getSubstituent = PD_GetPersoneByUNID(getDoc.getItemValue("substUNID")(0))
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library ApprovalLib -> Function removeSubstituent
+	' Boolean
+	' DCS-Olympiev Jan 29, 2019
+	' *********************************************************************************
+	Function removeSubstituent As Boolean
+	On Error GoTo ErrH
+
+		Call getDoc.replaceItemValue("VisingRus", getDoc.getItemValue("substRus"))
+		Call getDoc.replaceItemValue("VisingEng",getDoc.getItemValue("substEng"))
+		Call getDoc.replaceItemValue("VisingUNID",getDoc.getItemValue("substUNID"))
+		Call getDoc.replaceItemValue("VisingLN",getDoc.getItemValue("substLN"))
+		
+		Dim i As Integer
+		Dim substComment As Variant
+		
+		substComment = getDoc.getItemValue("substComment")
+		i = UBound(substComment) + 1
+		ReDim Preserve substComment(i) As String
+		substComment(i) = "Сотрудник " & getDoc.getItemValue("substRus")(0) & " замещён на " &  getDoc.getItemValue("VisingRus")(0) & " " & Now
+		Call getDoc.replaceItemValue("substComment", FullTrim(substComment))
+		
+		Call getDoc.replaceItemValue("substLN", "")
+		Call getDoc.replaceItemValue("substRus","")
+		Call getDoc.replaceItemValue("substEng","")
+		Call getDoc.replaceItemValue("substUNID","")
+		
+		
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+End Class
+'++LotusScript Development Environment:2:2:Initialize:2:10
+
+Sub Initialize
+	Const FuncName = {Initialize}
+	On Error GoTo ErrH
+	nLine = Chr(10) & Chr(13)
+
+
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Sub
+
+
+'++LotusScript Development Environment:2:1:APL_CreateApprovalDocument:5:8
+' Library ApprovalLib -> Function APL_CreateApprovalDocument
+' NotesDocument
+' DCS-Olympiev Oct 24, 2018
+' *********************************************************************************
+Function APL_CreateApprovalDocument (mainDoc As NotesDocument) As NotesDocument
+	Const FuncName = {APL_CreateApprovalDocument}
+	On Error GoTo ErrH
+
+	Dim newAppDoc As NotesDocument
+	Set newAppDoc = APL_getDb().Createdocument()
+	
+	Call newAppDoc.Replaceitemvalue("form", "approval")
+	Call newAppDoc.Replaceitemvalue("UNID", newAppDoc.Universalid)
+	
+	Dim unid As String
+	unid = mainDoc.Getitemvalue("UNID")(0)
+	If unid = "" Then unid = mainDoc.Universalid
+	
+	Call newAppDoc.Replaceitemvalue("mainDocUNID", unid)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+
+'++LotusScript Development Environment:2:1:APL_getDocumentByUNID:5:8
+' Library ApprovalLib -> Function APL_getDocumentByUNID
+' NotesDocument
+' DCS-Olympiev Oct 24, 2018
+' *********************************************************************************
+Function APL_getDocumentByUNID (unid As String) As NotesDocument
+	Const FuncName = {APL_getDocumentByUNID}
+	On Error GoTo ErrH
+
+	Set APL_getDocumentByUNID = APL_getDb().getView(VIEW_BYUNID).Getdocumentbykey(unid)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+
+'++LotusScript Development Environment:2:1:APL_recalcVisas:11:8
+' Library ApprovalLib -> Function APL_recalcVisas
+' ObjectCollection
+' Состовляет лист имён с конца в начало
+' -1 - трогать нельзя, утверждающий
+' лист(тэг) = количество человек на визе
+' Если лист(тэг) > 1, то удаляем с "той" визы 
+' Если лист(тэг) = 1, то удаляем с "этой" визы
+' для этого ещё листОбж() = виза, где первый раз встретилось
+' DCS-Olympiev Dec 5, 2018
+' *********************************************************************************
+Function APL_recalcVisas (objCol As ObjectCollection) As ObjectCollection
+	Const FuncName = {APL_recalcVisas}
+	On Error GoTo ErrH
+
+	Dim visas As ObjectCollection
+	Dim visa As Visa
+	Dim unids As Variant
+	Dim counter List As Integer
+	Dim object List As Visa
+	Dim newVisas As New ObjectCollection
+	
+	Set visas = objCol
+	Call visas.sort(False)
+	Set visa = visas.getFirstObject()
+	While Not visa Is Nothing
+		unids = visa.getPersonsUNIDs()
+		ForAll unid In unids 
+			If IsElement(counter(unid)) Then
+				If counter(unid) > 1 Then
+					Call object(unid).removePersonByUNID(CStr(unid))
+					Set object(unid) = visa
+					counter(unid) = UBound(unids)
+				Else
+					Call visa.removePersonByUNID(CStr(unid))					
+				End If
+			Else
+				Set object(unid) = visa
+				counter(unid) = UBound(unids)
+			End If
+		End ForAll
+		If visa.getPersonsLNNames()(0) <> "" Then Call newVisas.addObject(visa)
+		Set visa = visas.getNextObject()
+	Wend
+	
+	Dim stage As Integer
+	Dim currStage As Integer
+	Dim prevStage As Integer
+	
+	stage = 1
+	Set visa = newVisas.getLastObject()
+	prevStage = visa.getStage()
+	While Not visa Is Nothing
+		currStage = visa.getStage()
+		If currStage = prevStage Then
+			visa.setStage(stage)
+		Else
+			stage = stage + 1
+			visa.setStage(stage)
+			prevStage = currStage
+		End If
+		Set visa = newVisas.getPrevObject()
+	Wend
+	
+	Set APL_recalcVisas = newVisas
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:APL_getDb:5:8
+' Library ApprovalLib -> Function APL_getDb
+' NotesDatabase
+' DCS-Olympiev Oct 24, 2018
+' *********************************************************************************
+Function APL_getDb As NotesDatabase
+	Const FuncName = {APL_getDb}
+	On Error GoTo ErrH
+
+	If approvalDatabase Is Nothing Then Set approvalDatabase = DBT_GetDbBySearchKey(APPROVAL_DB_NAME)
+	
+	Set APL_getDb = approvalDatabase
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Function
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

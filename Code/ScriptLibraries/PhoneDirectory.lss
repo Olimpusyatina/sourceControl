@@ -1,0 +1,418 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+Option Public
+Option Declare
+Use "ArrayTools"
+Use "DataBaseTools"
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Sub Initialize
+Declare Function PD_GetPhoneDb() As NotesDatabase
+Declare Function PD_GetDepartmentDoc(param As Variant) As NotesDocument
+Declare Sub PD_InitPhoneLib()
+Declare Sub PD_SetPhoneDb(db As notesdatabase)
+Declare Function PD_GetPersonDocByLN(NameLN As string) As NotesDocument
+Declare Function PD_GetPersoneRusName(UserLN As String) As String
+Declare Function PD_GetPersoneByUNID(UNID As string) As NotesDocument
+Declare Function PD_GetAllHoldingFirm(returnResult As Integer) As Variant
+Declare Function PD_GetFirmDoc(param As Variant) As NotesDocument
+Declare Function PD_GetStructureDoc(param As variant) As NotesDocument
+Declare Function PD_GetFirmDocByUnid(unid As String, needMainOffice As Boolean) As NotesDocument
+Declare Function PD_GetPersoneLNName(UserLN As String) As String
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const libName = {("PhoneDirectory")}
+
+Private Const PHONE_DBKEY = {ФИРМЫ}
+Private Const PHONE_DBPATH = {ESC\Firm.nsf}
+Private Const PHONE_EMAILVIEW = {(byNotesAddress)}
+Private Const PHONE_FIRMHOLDINGVIEW = {(FirmHolding)}
+
+Dim PhoneDb As NotesDatabase
+Private vwFirmUnid As NotesView
+
+Private nLine As String
+Private initLib As Integer
+
+
+'++LotusScript Development Environment:2:2:Initialize:1:10
+Sub Initialize
+	nLine = Chr(10) & Chr(13)
+	Call PD_InitPhoneLib()
+End Sub
+
+
+'++LotusScript Development Environment:2:1:PD_GetPhoneDb:1:8
+Function PD_GetPhoneDb() As NotesDatabase
+	On Error GoTo handler
+	Const FuncName = {Sub "PD_GetPhoneDb"}
+	Dim ErrStr As String
+	
+	Dim session As New NotesSession
+	
+	If PhoneDb Is Nothing Then Set PhoneDb = DBT_GetDbBySearchKey(PHONE_DBKEY)
+	'session.Getdatabase(session.Currentdatabase.Server, PHONE_DBPATH, false) 
+	If PhoneDb Is Nothing Then Error 5001, "Не найден список сотрудников."
+	If Not PhoneDb.Isopen Then Error 5002, "Список сотрудников недоступен."
+	
+	Set PD_GetPhoneDb = PhoneDb
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+
+'++LotusScript Development Environment:2:1:PD_GetDepartmentDoc:1:8
+Function PD_GetDepartmentDoc(param As Variant) As NotesDocument
+	On Error GoTo handler
+	Const FuncName = {Function "PD_GetDepartmentDoc"}
+	Dim ErrStr As String
+	
+	Dim unid As String
+	Dim resultDoc As NotesDocument
+	
+	Set PD_GetDepartmentDoc = Nothing
+	
+	Select Case TypeName(param)
+		Case "STRING":
+			
+			If param = "" Then Error 6010, "Пустое значение параметра."
+			If Len(param) <> 32 Then Error 6010, "Неверное значение параметра: " & param
+			' Поиск по UNID
+			unid=param
+			
+		Case "NOTESDOCUMENT":
+			
+			unid  = param.getitemvalue("StructureDepartmentUNID")(0)
+			
+	End Select
+	
+	On Error Resume Next
+	Set resultDoc = PhoneDb.Getdocumentbyunid(UNID)
+	On Error GoTo handler
+	
+	If resultDoc Is Nothing Then GoTo endh
+	If resultDoc.Universalid = "" Then GoTo endh
+	If resultDoc.Getitemvalue("IsArchive")(0) = "1" Then GoTo endh
+	
+	Set PD_GetDepartmentDoc = resultDoc
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:2:PD_InitPhoneLib:1:8
+Sub PD_InitPhoneLib()
+	
+	If initLib <> 1 Then
+		Call PD_GetPhoneDb()
+		initLib = 1
+	End If
+	
+End Sub
+
+'++LotusScript Development Environment:2:2:PD_SetPhoneDb:1:8
+Sub PD_SetPhoneDb(db As notesdatabase)
+	On Error GoTo handler
+	Const FuncName = {Sub "PD_SetPhoneDb"}
+	Dim ErrStr As String
+	
+	Set PhoneDb = db
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Sub
+
+
+'++LotusScript Development Environment:2:1:PD_GetPersonDocByLN:1:8
+Function PD_GetPersonDocByLN(NameLN As string) As NotesDocument
+	On Error GoTo handler
+	Const FuncName = {Sub "PD_GetPersonDocByLN"}
+	Dim ErrStr As String
+	
+	Dim ViewLn As NotesView
+	Dim PhoneDoc As NotesDocument
+	Dim macro As Variant
+	
+	Set ViewLN = PD_getPhoneDb.Getview(PHONE_EMAILVIEW)
+	If ViewLN Is Nothing Then Error 5005, "Отсутствует служебное представление:" & PHONE_EMAILVIEW
+	
+	Set PD_GetPersonDocByLN = Nothing
+	
+	If NameLN = "" Then GoTo endh
+	
+	macro = Evaluate({@Name([ABBREVIATE];"} & NameLN & {")})
+	
+	Set PhoneDoc = ViewLn.Getdocumentbykey(macro(0),True) 
+	If PhoneDoc Is Nothing Then Error 5007, "Не найдена карточка сотрудника:" & NameLN 
+	
+	Set PD_GetPersonDocByLN = PhoneDoc
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+
+'++LotusScript Development Environment:2:1:PD_GetPersoneRusName:1:8
+Function PD_GetPersoneRusName(UserLN As String) As String
+	On Error GoTo handler
+	Const FuncName = {Function "PD_GetPersoneRusName"}
+	Dim ErrStr As String
+	
+	Dim PhoneDoc As NotesDocument
+
+	PD_GetPersoneRusName = ""
+	
+	Set PhoneDoc = PD_GetPersonDocByLN(UserLN)
+	
+	PD_GetPersoneRusName = PhoneDoc.Getitemvalue("Caller")(0)
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:PD_GetPersoneByUNID:1:8
+Function PD_GetPersoneByUNID(UNID As string) As NotesDocument
+	On Error GoTo handler
+	Const FuncName = {Sub "PD_GetPersoneByUNID"}
+	Dim ErrStr As String
+	
+	Dim PhoneDoc As NotesDocument
+	
+	Set PD_GetPersoneByUNID = Nothing
+	
+	If UNID = "" Then GoTo endh
+	If Len(UNID) < 32 Then GoTo endh
+	
+	On Error 4091 Resume next
+	Set PhoneDoc = PhoneDb.Getdocumentbyunid(UNID)
+	On Error GoTo handler
+	
+	If PhoneDoc Is Nothing Then Error 5007, "Не найдена карточка сотрудника по ключу:" & UNID
+	
+	Set PD_GetPersoneByUNID = PhoneDoc
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+
+'++LotusScript Development Environment:2:1:PD_GetAllHoldingFirm:1:8
+Function PD_GetAllHoldingFirm(returnResult As Integer) As Variant
+	' returnResult = 0  вернет коллекцию документов
+	' returnResult = 1  вернет массив названий фирм
+	On Error GoTo handler
+	Const FuncName = {Function "PD_GetAllHoldingFirm"}
+	Dim ErrStr As String
+	
+	Dim result As Variant
+	Dim ViewLn As NotesView
+	Dim docs As NotesDocumentCollection
+	Dim doc As NotesDocument
+	
+	Set ViewLN = PhoneDb.Getview(PHONE_FIRMHOLDINGVIEW)
+	If ViewLN Is Nothing Then Error 5005, "Отсутствует служебное представление:" & PHONE_FIRMHOLDINGVIEW
+	
+	If returnResult = 0 then
+		Set docs = PhoneDb.Search("", nothing, 0)
+	ElseIf Returnresult = 1 Then
+		result = ArrayInit("")
+	End If
+	
+	Set doc = ViewLN.Getfirstdocument()
+	
+	While Not doc Is Nothing
+	
+	If Returnresult = 0 Then
+		Call docs.Adddocument(doc)
+	ElseIf Returnresult = 1 Then
+		result = ArrayAppendElement(result,doc.Getitemvalue("Firm")(0))
+	End If
+		
+		Set doc = viewLn.Getnextdocument(doc)
+	Wend
+	
+	If Returnresult = 0 Then
+		Set PD_GetAllHoldingFirm = docs
+	ElseIf Returnresult = 1 Then
+		PD_GetAllHoldingFirm = FullTrim(result)
+	End If
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:PD_GetFirmDoc:1:8
+Function PD_GetFirmDoc(param As Variant) As NotesDocument
+	' Если пришел документ, то это документ сотрудника.
+	On Error GoTo handler
+	Const FuncName = {Function "PD_GetFirmDoc"}
+	Dim ErrStr As String
+	
+	Dim unid As String
+	Dim keys As string
+	Dim resultDoc As NotesDocument
+	Dim fView As NotesView
+	
+	Set PD_GetFirmDoc = Nothing
+	
+	Select Case TypeName(param)
+		Case "STRING":
+			
+			If param = "" Then Error 6010, "Пустое значение параметра."
+			If Len(param) <> 32 Then Error 6010, "Неверное значение параметра: " & param
+			' Поиск по UNID
+			unid=param
+			
+		Case "NOTESDOCUMENT":
+			keys = param.getitemValue("Firm")(0)
+	End Select
+	
+	If keys <> "" Then
+		Set fView = PhoneDb.Getview(PHONE_FIRMHOLDINGVIEW)
+		If fView Is Nothing Then Error 5005, "Отсутствует служебное представление:" & PHONE_FIRMHOLDINGVIEW
+		Set resultDoc = fView.Getdocumentbykey(keys,true)
+	End If
+	
+	If resultDoc Is Nothing Then GoTo endh
+	If resultDoc.Getitemvalue("IsArchive")(0) = "1" Then GoTo endh
+	
+	Set PD_GetFirmDoc = resultDoc
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:PD_GetStructureDoc:1:8
+Function PD_GetStructureDoc(param As variant) As NotesDocument
+	On Error GoTo handler
+	Const FuncName = {Function "PD_GetStructureDoc"}
+	Dim ErrStr As String
+	
+	Dim unid As string
+	Dim resultDoc As NotesDocument
+	
+	Set PD_GetStructureDoc = nothing
+	
+	Select Case TypeName(param)
+		Case "STRING":
+			
+			If param = "" Then Error 6010, "Пустое значение параметра."
+			If Len(param) <> 32 Then Error 6010, "Неверное значение параметра: " & param
+			' Поиск по UNID
+			unid=param
+			
+		Case "NOTESDOCUMENT":
+			
+			unid  = param.getitemvalue("StructurePositionUNID")(0)
+			
+	End Select
+	
+	On Error Resume Next
+	Set resultDoc = PhoneDb.Getdocumentbyunid(UNID)
+	On Error GoTo handler
+	
+	If resultDoc Is Nothing Then GoTo endh
+	If resultDoc.Universalid = "" Then GoTo endh
+	If resultDoc.Getitemvalue("IsArchive")(0) = "1" Then GoTo endh
+	
+	Set PD_GetStructureDoc = resultDoc
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+
+
+
+'++LotusScript Development Environment:2:1:PD_GetFirmDocByUnid:1:8
+Function PD_GetFirmDocByUnid(unid As String, needMainOffice As Boolean) As NotesDocument
+	' Если пришел документ, то это документ сотрудника.
+	On Error GoTo handler
+	Const FuncName = {Function "PD_GetFirmDocByUnid"}
+	Dim ErrStr As String
+	
+	Dim keys As String
+	Dim resultDoc As NotesDocument
+	
+	Set PD_GetFirmDocByUnid = Nothing
+	If Len(unid) <> 32 Then GoTo endh
+	
+	If vwFirmUnid Is Nothing Then Set vwFirmUnid = PhoneDb.Getview("(FirmByUnidMain)")
+	Set resultDoc = vwFirmUnid.Getdocumentbykey(unid, True)
+	
+	If resultDoc Is Nothing Then GoTo endh
+	If resultDoc.Getitemvalue("IsArchive")(0) = "1" Then GoTo endh
+	
+	If needMainOffice Then
+		If resultDoc.Getitemvalue("UNID")(0) = "198D562AF275D4C2C325755A0034C54E" Then
+			Set resultDoc = PD_GetFirmDocByUnid("1611F7558649288EC32571FE0021A81F", False)
+		End If
+	End If
+	
+	Set PD_GetFirmDocByUnid = resultDoc
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:PD_GetPersoneLNName:1:8
+Function PD_GetPersoneLNName(UserLN As String) As String
+	On Error GoTo handler
+	Const FuncName = {Function "PD_GetPersoneLNName"}
+	Dim ErrStr As String
+	
+	Dim PhoneDoc As NotesDocument
+	
+	PD_GetPersoneLNName = ""
+	
+	Set PhoneDoc = PD_GetPersonDocByLN(UserLN)
+	
+	PD_GetPersoneLNName = Implode(Evaluate({@Name([CANONICALIZE];"} & PhoneDoc.getitemvalue("NotesAddress")(0) & {")}))
+	
+	GoTo endh
+	
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в строке " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function

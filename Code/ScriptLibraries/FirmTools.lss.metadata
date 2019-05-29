@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?><note class="filter" maintenanceversion="1.0" replicaid="43258409002A14B3" version="10.0" xmlns="http://www.lotus.com/dxl">
+<noteinfo noteid="1ae" sequence="3" unid="E9BB1111950547D8432583860044F61A">
+<created><datetime>20190118T153314,50+03</datetime></created>
+<modified><datetime>20190529T103939,42+03</datetime></modified>
+<revised><datetime>20190325T101321,60+03</datetime></revised>
+<lastaccessed><datetime>20190529T103939,42+03</datetime></lastaccessed>
+<addedtofile><datetime>20190529T103939,42+03</datetime></addedtofile></noteinfo>
+<updatedby><name>CN=Sergey A. Tyschuk/O=OTTO/C=RU</name><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name><name>CN=Sergey A. Tyschuk/O=OTTO/C=RU</name><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name></updatedby>
+<wassignedby><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name></wassignedby>
+<item name="$PublicAccess" sign="true"><text>1</text></item>
+<item name="$TITLE" sign="true"><text>FirmTools</text></item>
+<item name="$DesignerVersion" sign="true"><text>8.5.3</text></item>
+<item name="$Class"><text>HRSLTemplate</text></item>
+<item name="$Flags"><text>s34Q</text></item>
+
+</note>

@@ -1,0 +1,364 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+%REM
+	Library DelegationLib_UI
+	Created Jan 17, 2019 by Alexandr S. Olympiev/OTTO/RU
+	Description: Comments for Library
+%END REM
+Option Public
+Option Declare
+Use "PhoneDirectory_UI"
+Use "DelegationLib"
+Use "ManagementStructureToolsUI"
+'Use "A3_Window"
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Class delegation_UI
+Declare Sub Initialize
+Declare Function DLUI_selectPerson (lnName As String, allStaff As Boolean) As NotesDocument
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const DesignElem = {DelegationLib_UI}
+Private nLine As String
+
+' Library DelegationLib_UI -> Class delegation_UI
+' 
+' DCS-Olympiev Jan 17, 2019
+' *********************************************************************************
+Class delegation_UI
+	Private className As String
+	Private uidoc As NotesUIDocument
+	Private delegation As delegation
+	
+	Sub New (uidoc As NotesUIDocument)
+		On Error GoTo ErrH
+		className = {delegation_UI}
+		Set Me.uiDoc = uiDoc
+		Set delegation = New delegation(uidoc.Document)
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub
+	' Library DelegationLib_UI -> Function queryOpen
+	' Boolean
+	' DCS-Olympiev Jan 17, 2019
+	' *********************************************************************************
+	Function queryOpen As Boolean
+	On Error GoTo ErrH
+	
+	uidoc.Editmode = True
+	queryOpen = getDelegation().queryOpen()
+		
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib_UI -> Function querySave
+	' Boolean
+	' DCS-Olympiev Jan 17, 2019
+	' *********************************************************************************
+	Function querySave As Boolean
+	On Error GoTo ErrH
+
+		querySave = getDelegation().querySave()
+		If querySave Then MsgBox "Изменения сохранены"
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib_UI -> Function queryClose
+	' Boolean
+	' DCS-Olympiev Jan 17, 2019
+	' *********************************************************************************
+	Function queryClose As Boolean
+	On Error GoTo ErrH
+
+		queryClose = getDelegation().queryClose()
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib_UI -> Sub postOpen
+	' 
+	' DCS-Olympiev Jan 17, 2019
+	' *********************************************************************************
+	Sub postOpen 
+	On Error GoTo ErrH
+		
+		Call getDelegation().getDoc().replaceItemValue("funcRoles", getDelegation().getLocalValue("FR")(0))
+		Call getDelegation().getDoc().replaceItemValue("categories", getDelegation().getLocalValue("cat")(0))
+		Call getUIDoc.Refresh()
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub
+	' Library DelegationLib_UI -> Sub postSave
+	' 
+	' DCS-Olympiev Jan 17, 2019
+	' *********************************************************************************
+	Sub postSave
+	On Error GoTo ErrH
+
+	If Not getDelegation().postSave() Then Error 6500, "Не удалось сохранить историю"
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub
+	' Library DelegationLib_UI -> Function SetSubstituent
+	' NotesDocumentCollection
+	' DCS-Olympiev Jan 17, 2019
+	' *********************************************************************************
+	Function SetSubstituent As NotesDocumentCollection
+	On Error GoTo ErrH
+		
+		Dim docTmp As NotesDocument
+		Dim PersonsInfo List As Variant
+		Dim Title As String
+		Dim Comment As String
+		Dim HideElements As Variant
+		
+		PersonsInfo("Persons") = getDoc.Getitemvalue("SubstituentRus")
+		PersonsInfo("PersonsEn") = getDoc.Getitemvalue("SubstituentEng")
+		PersonsInfo("PersonsUnid") = getDoc.Getitemvalue("SubstituentUNID")
+		PersonsInfo("PersonsLN") = getDoc.Getitemvalue("SubstituentLN")
+		
+		Title = "Замещающие"
+		Comment = "Вы можете выбрать несколько замещающих и изменить их приоритет, "
+		Comment = Comment & "указывая сотрудников и передвигая их с помощью стрелок. "
+		Comment = Comment & "Наиболее приоритетным всегда будет верхний сотрудник."
+		HideElements = ""
+		
+		Set docTmp = PDUI_ChoosePersonsFromDialog(PersonsInfo, Title, Comment, HideElements)
+		
+		If getDelegation().SetSubstituent(Doctmp) Then 	Call getUIDoc.Refresh()
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib_UI -> Function getUIDoc
+	' NotesDocument
+	' DCS-Olympiev Jan 18, 2019
+	' *********************************************************************************
+	Function getUIDoc As NotesUIDocument
+	On Error GoTo ErrH
+
+		Set getUIDoc = uidoc
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib_UI -> Function getDelegation
+	' Delegation
+	' DCS-Olympiev Jan 18, 2019
+	' *********************************************************************************
+	Function getDelegation As delegation
+	On Error GoTo ErrH
+
+		Set getDelegation = delegation
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib_UI -> Function getDoc
+	' NotesDocument
+	' DCS-Olympiev Jan 18, 2019
+	' *********************************************************************************
+	Function getDoc As NotesDocument
+	On Error GoTo ErrH
+
+	Set getDoc = getDelegation().getDoc()
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib_UI -> Function chooseFuncRole
+	' Boolean
+	' DCS-Olympiev Jan 21, 2019
+	' *********************************************************************************
+	Function chooseFuncRole As Boolean
+	On Error GoTo ErrH
+
+	chooseFuncRole = getDelegation().chooseFuncRole()
+	If chooseFuncRole Then
+	
+		Call getUIDoc.Refresh()
+		Call getDelegation().getDoc().replaceItemValue("categories", getDelegation().getLocalValue("cat")(0))
+		Call getDelegation().updateSubstituents()
+		Call getUIDoc.Refresh()
+		
+	End If
+	
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib_UI -> Function addPerson
+	' Variant
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function addPerson(company As String) As Boolean
+	On Error GoTo ErrH
+
+	Dim personDoc As NotesDocument
+	'Set personDoc = PDUI_SelectPeople(False).Getfirstdocument()
+	Set personDoc = DLUI_selectPerson(getDoc.getItemValue("personLNName")(0), true)
+	
+	If personDoc Is Nothing Then GoTo EndH
+	Dim frUNID As String
+	Dim catUNID As String
+	
+	Select Case company
+		Case "FR"
+			Call getDelegation().addPersonToFR(personDoc)
+		Case "CAT"
+			frUnid = getDelegation().getSelectedFRUnid()
+			Call getDelegation().addPersonToCat(personDoc, frUNID)
+		Case "COMP"
+			frUnid = getDelegation().getSelectedFRUnid()
+			catUNID = getDelegation().getSelectedCatUNID()
+			Call getDelegation().addPersonToComp(personDoc, frUNID, catUNID)
+		Case Else
+			Call getDelegation().addPerson(personDoc, company)				
+	End Select
+	
+	Call getUIDoc().Refresh()
+		Call getUIDoc.Refresh()
+		
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library DelegationLib_UI -> Function chooseCategory
+	' Boolean
+	' DCS-Olympiev Jan 24, 2019
+	' *********************************************************************************
+	Function chooseCategory As Boolean
+	On Error GoTo ErrH
+
+		chooseCategory = getDelegation().chooseCategory()
+		If chooseCategory Then
+			Call getDelegation().updateSubstituents()
+			Call getUIDoc.Refresh()
+	'		Call getDelegation().getDoc().replaceItemValue("categories", getDelegation().getLocalValue("cat")(0))
+			Call getUIDoc.Refresh()
+			
+		End If
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	Public Sub OpenHistory
+		On Error GoTo eh
+		Const funcName = {AppRefObjectUI.OpenHistory}
+		
+		Dim doc As NotesDocument
+		Dim ws As New NotesUIWorkspace
+		
+		Set doc = New NotesDocument(DL_getDb())
+		Call doc.Replaceitemvalue("Form", getDoc.Getitemvalue("Form")(0) & "History")
+		Call doc.Replaceitemvalue("MainUNID", getDoc.Getitemvalue("UNID")(0))
+		Call ws.Settargetframe("")
+		Call ws.Editdocument(True, doc)
+		GoTo fn
+eh:
+		Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(Erl) & nLine & Error$
+fn:
+	End Sub
+End Class
+'++LotusScript Development Environment:2:2:Initialize:2:10
+
+Sub Initialize
+	On Error GoTo ErrH
+	
+	nLine = Chr(10) & Chr(13)
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Sub
+
+
+'++LotusScript Development Environment:2:1:DLUI_selectPerson:5:8
+' Library DelegationLib_UI -> Function DLUI_selectPerson
+' Variant
+' DCS-Olympiev Feb 1, 2019
+' *********************************************************************************
+Function DLUI_selectPerson (lnName As String, allStaff As Boolean) As NotesDocument
+	On Error GoTo ErrH
+	
+	Dim persons As Variant
+	Dim dlgDoc As NotesDocument
+	Dim person As Variant
+	Dim ws As New NotesUIWorkspace
+	Dim position As Integer
+	Dim personDoc As NotesDocument
+	
+	persons = PD_GetPhoneDb().Getview("Telefons\ByName").Getcolumnvalues(1)		
+	
+	If allStaff Then
+		Set DLUI_selectPerson = PDUI_SelectPeople(False).Getfirstdocument()
+		'Set personDoc = PDUI_SelectPeople(False).Getfirstdocument()
+	'	Dim pb As New LNProgressBar (3)
+	'	Call pb.setText("Загрузка сотрудников", "Подождите, пожалуйста")
+	'	Set personDoc = MSTUI_selectColleguesAndHead(lnName, False).getFirstDocument()
+	'	If personDoc Is Nothing Then GoTo EndH
+	'	If personDoc.Getitemvalue("NotesAddress")(0) = "" Then GoTo EndH
+	'	Set DLUI_selectPerson = personDoc
+		GoTo EndH
+	Else
+		' Some more code
+		persons = PD_GetPhoneDb().Getview("Telefons\ByName").Getcolumnvalues(1)		
+	End If
+	
+	If IsEmpty(persons) Then Error 6650, "Не найдены сотрудники для поиска."
+	
+	Set dlgDoc = DL_getDb().Createdocument()
+	
+	Call dlgDoc.ReplaceItemValue("initFieldFull",persons)
+	person = ws.DialogBox("SelectPerson",True,True,False,False,False,False,"Поиск сотрудника",dlgDoc,True)
+	If Not person Then GoTo Endh
+	
+	position = ArrayPosition(dlgDoc.GetItemValue("initField"), dlgDoc.GetItemValue("enterField")(0), False)
+	
+	If position > 0 Then 
+		Set personDoc = PD_GetPersoneByUNID(dlgDoc.GetItemValue("initFieldUNIDs")(position))
+	Else
+		Error 6651, "Не найдена карточка сотрудника"
+	End If
+			
+	Set DLUI_selectPerson = personDoc
+		
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem &  " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+
+
+
+
+

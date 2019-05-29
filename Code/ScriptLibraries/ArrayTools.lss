@@ -1,0 +1,588 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+Option Public
+Option Declare
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Sub Initialize
+Declare Function ArrayReplaceElement(Arr As Variant, elem As Variant, newElem As Variant) As variant
+Declare Function ArrayPosition(arr As Variant, elem As Variant, allCompare As Boolean) As Long
+Declare Sub ArrayToDouble(arr As Variant)
+Declare Function ArrayRemovePosition(arr As Variant, position As long) As Variant
+Declare 	Function ArrayAppendArray(arr1 As Variant,arr2 As Variant) As Variant
+Declare Function ArrayInit(arr As Variant) As Variant
+Declare Function ArrayAppendElement(arr As Variant,Elem As Variant) As Variant
+Declare Function ArrayToInteger(arr As Variant) As Variant
+Declare Function ArrayInsertElement(Arr As Variant,Element As Variant ,position As Long) As Variant
+Declare Sub quicksort (l As Long,r As Long, arrayelts As Variant, Direction As Integer)
+Declare Function ArrayToList(arr As Variant) As String
+Declare Function ArrayisDiference(arr As Variant, arr2 As Variant) As Boolean
+Declare Sub ArraySort(Direction As Integer, param As variant)
+Declare Function ArrayCommonElements(arr1 As Variant, arr2 As Variant) As Variant
+Declare Function ArrayRemoveArray(arr1 As Variant,arr2 As Variant) As Variant
+Declare Function ArrayIsMember(arr As Variant, elem As variant) As Boolean
+Declare Function ArrayRemoveElement(arr As Variant,elem As Variant) As Variant
+Declare Function ArrayDiffElements2(arr1 As Variant, arr2 As Variant) As Variant
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const libName = {("ArrayTools") }
+Private nLine As String
+
+
+'++LotusScript Development Environment:2:2:Initialize:1:10
+Sub Initialize
+	nLine = Chr(10) & Chr(13)
+End Sub
+
+'++LotusScript Development Environment:2:1:ArrayReplaceElement:1:8
+Function ArrayReplaceElement(Arr As Variant, elem As Variant, newElem As Variant) As variant
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayReplaceElement" }
+	Dim ErrStr As String
+
+	Dim resArr As Variant
+
+	resArr = ArrayInit(arr)
+
+	ForAll x in resArr
+		If x = elem Then
+			x = newElem
+		End If
+	End ForAll
+
+	ArrayReplaceElement = FullTrim(resArr)
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayPosition:1:8
+Function ArrayPosition(arr As Variant, elem As Variant, allCompare As Boolean) As Long
+	' -1 нет в массиве
+	' allCompare - сравнивать независио от регистра
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayPosition" }
+	Dim ErrStr As String
+	Dim k As variant
+
+	ArrayPosition = -1
+		
+	If Not allCompare then
+		k = ArrayGetIndex(Arr,elem)
+		If Not IsNull(k) Then ArrayPosition = k 
+	Else
+		ForAll x In arr
+			If 	LCase(Trim(x)) = LCase(Trim(elem)) Then
+				ArrayPosition = k
+			End If
+			k=k+1
+		End ForAll
+	End If
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:2:ArrayToDouble:1:8
+Sub ArrayToDouble(arr As Variant)
+	On Error GoTo handler
+	Const FuncName = { Sub "ArrayToDouble" }
+	Dim ErrStr As String
+	
+	ForAll x In arr
+		x = CDbl(x)
+	End ForAll
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Sub
+
+'++LotusScript Development Environment:2:1:ArrayRemovePosition:1:8
+Function ArrayRemovePosition(arr As Variant, position As long) As Variant
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayRemovePosition" }
+	Dim ErrStr As String
+
+	Dim resArr As Variant
+	
+	If position > UBound(arr) Or position < LBound(arr) Then 
+		ArrayRemovePosition = arr
+		GoTo endh
+	End If
+		
+	resArr = ArrayInit(arr)
+	
+	resArr(position) = ""
+	
+	ArrayRemovePosition = FullTrim(resArr)
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayAppendArray:1:8
+	Function ArrayAppendArray(arr1 As Variant,arr2 As Variant) As Variant
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayAppendArray" }
+	Dim ErrStr As String
+
+	Dim resArr As Variant
+
+	resArr = ArrayInit(arr1)
+	
+	ForAll x In arr2
+		resArr = ArrayAppendElement(resArr,x)
+	End ForAll
+	
+	ArrayAppendArray = resArr
+	
+	GoTo endh
+handler:
+		ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayInit:1:8
+Function ArrayInit(arr As Variant) As Variant
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayInit" }
+	Dim ErrStr As String
+	Dim resArr() As Variant
+	Dim i As Long
+
+	If IsArray(arr) Then
+		If UBound(arr) > 0 Then
+			i = 0
+			ReDim Preserve resArr(0 To UBound(arr)) As Variant
+			For i=0 To UBound(arr)
+				resArr(i) = arr(i)
+			Next
+		
+		Else
+		ReDim resArr(0) As Variant
+			resArr(0) = arr(0)
+		End If
+	Else
+		ReDim resArr(0) As Variant
+		resArr(0) = arr
+	End If
+
+	ArrayInit = resArr
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayAppendElement:1:8
+Function ArrayAppendElement(arr As Variant,Elem As Variant) As Variant
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayAppendElement" }
+	Dim ErrStr As String
+	Dim resArr() As Variant
+	Dim i As Long
+
+	If IsArray(arr) Then
+		If UBound(arr) > 0 Then
+			i = 0
+			ReDim Preserve resArr(0 To UBound(arr)+1) As Variant
+			For i=0 To UBound(arr)
+				resArr(i) = arr(i)
+			Next
+			If IsArray(elem) Then
+				resArr(UBound(resArr)) = elem(0)
+			Else
+				resArr(UBound(resArr)) = elem
+			End If
+		Else
+			ReDim Preserve resArr(0 To 1) As Variant
+			resArr(0) = arr(0)
+			If IsArray(elem) Then
+				resArr(1) = elem(0)
+			Else
+				resArr(1) = elem
+			End If
+		End If
+	Else
+		ReDim Preserve resArr(0 To 1) As Variant
+		resArr(0) = arr
+		If IsArray(elem) Then
+			resArr(1) = elem(0)
+		Else
+			resArr(1) = elem
+		End If
+	End If
+
+	ArrayAppendElement = resArr
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayToInteger:1:8
+Function ArrayToInteger(arr As Variant) As Variant
+	On Error GoTo handler
+	Const FuncName = { Sub "ArrayToInteger" }
+	Dim ErrStr As String
+	
+	Dim k As Variant
+	
+	ForAll x In arr
+		k = ArrayAppendElement(k,CInt(x))
+	End ForAll
+	
+	ArrayToInteger = k
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayInsertElement:1:8
+Function ArrayInsertElement(Arr As Variant,Element As Variant ,position As Long) As Variant
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayInsertElement" }
+	Dim ErrStr As String
+	
+	Dim resArr As variant
+	Dim i As Long
+	
+	resArr = ArrayInit("")
+	
+	i = 0
+	ForAll x In Arr
+		If i = position Then
+			resArr =  ArrayAppendElement(resArr,Element)
+			resArr =  ArrayAppendElement(resArr,x)
+		Else
+			resArr =  ArrayAppendElement(resArr,x)
+		End If
+		
+		i=i+1
+	End ForAll
+	
+	ArrayInsertElement = FullTrim(resArr)
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:2:quicksort:1:8
+Sub quicksort (l As Long,r As Long, arrayelts As Variant, Direction As Integer)
+	' l - Lbound
+	' r - Ubound
+	' arrayelets - Array
+	' Direction - Up(1) or Down(2)
+	On Error GoTo handler
+	Const FuncName = { Function "quicksort" }
+	Dim ErrStr As String
+	
+	Dim m As Variant
+	Dim i As Long
+	Dim t As Variant
+	Dim j As Long
+	Dim pos As long
+
+	If r > l Then 'If there's nothing to sort, jump out
+		pos = (r+l)/2
+		m = arrayelts(pos) 'Initialize boundaries, nominate a value to sort
+		j = r
+		i = l
+
+		If Direction = 1 Then
+			While (i <= j)
+				' Up
+				While (arrayelts(i) < m And i < r) 'Push in the boundaries while data is sorted
+					i = i + 1
+				Wend
+				
+				While (arrayelts(j) > m And j > l)
+					j = j - 1
+				Wend
+				
+				If i <= j Then 'If there is data between i and j something is out of order - swap it
+					t = arrayelts(i)
+					arrayelts(i) = arrayelts(j)
+					arrayelts(j) = t
+
+					i=i+1
+					j=j-1
+				End If
+				
+			Wend 'Repeat until i and j "meet in the middle"
+			
+		ElseIf  Direction = 2 Then
+			While (i <= j)
+				' Down
+				While (arrayelts(i) > m) 'Push in the boundaries while data is sorted
+					i = i + 1
+				Wend
+				
+				While (arrayelts(j) < m )
+					j = j - 1
+				Wend
+				
+				t = arrayelts(i)
+				arrayelts(i) = arrayelts(j)
+				arrayelts(j) = t
+
+				i=i+1
+				j=j-1
+			Wend 'Repeat until i and j "meet in the middle"		
+		End If
+		
+		If (l < j) Then Call quicksort (l, j, arrayelts,Direction) 'Recurse and sort data either side of upper bound
+		If (r > i) Then Call quicksort (i, r, arrayelts,Direction)
+
+	End If
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Sub
+
+'++LotusScript Development Environment:2:1:ArrayToList:1:8
+Function ArrayToList(arr As Variant) As String
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayToList" }
+	Dim resultString As String
+	Dim ErrStr As String
+	
+	If Not IsArray(arr) Then
+		resultString = {"} & arr & {"}
+	Else
+		ForAll x In arr
+			If resultString <> "" Then
+				resultString = resultString & {"} & x & {":}
+			Else
+				resultString = {"} & x & {":}
+			End If
+		End ForAll
+	End If 
+	
+	resultString = StrLeftBack(resultString,":")
+	
+	ArrayToList = resultString 
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayisDiference:1:8
+Function ArrayisDiference(arr As Variant, arr2 As Variant) As Boolean
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayisDiference" }
+	Dim ErrStr As String
+	
+	dim i As Long
+	ArrayisDiference = false
+	
+	If UBound(arr) <> UBound(arr2) Then
+		ArrayisDiference = True
+	Else
+		If UBound(arr) > 0 Then
+			For i = 0 To UBound(arr)
+				If arr(i) <> arr2 (i) Then
+					ArrayisDiference = True	
+					Exit For
+				End If 
+			Next
+		Else
+			If  arr(0) <> arr2 (0) Then 
+				ArrayisDiference = True
+			End If
+		End If
+	End If
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:2:ArraySort:1:8
+Sub ArraySort(Direction As Integer, param As variant)
+	' Direction - Up(1) or Down(2)
+	On Error GoTo handler
+	Const FuncName = { Sub "ArraySort" }
+	Dim ErrStr As String
+	
+	Call quicksort (LBound(param), UBound(param), param, Direction)
+	 
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:	
+End Sub
+
+'++LotusScript Development Environment:2:1:ArrayCommonElements:1:8
+Function ArrayCommonElements(arr1 As Variant, arr2 As Variant) As Variant
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayCommonElements" }
+	Dim ErrStr As String
+	
+	Dim resArr As Variant
+	Dim i As Long
+	Dim j As long
+
+	Call ArraySort(1,arr1)
+	Call ArraySort(1,arr2)
+	
+	resArr = ArrayInit("")
+	i = LBound(arr1)
+	j = LBound(arr2)
+	While (i < UBound(arr1) And j < UBound(arr2))
+		
+		If arr1(i) = arr2(j) Then
+			resArr = ArrayAppendElement(resArr, arr1(i))
+			i= i + 1
+			j= j + 1
+		ElseIf arr1(i) < arr2(j) Then
+			i= i + 1
+		else
+			j= j + 1
+		End If
+	Wend
+	
+	ArrayCommonElements = resArr
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:	
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayRemoveArray:1:8
+Function ArrayRemoveArray(arr1 As Variant,arr2 As Variant) As Variant
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayRemoveArray" }
+	Dim ErrStr As String
+
+	Dim resArr As Variant
+
+	resArr = ArrayInit(arr1)
+	
+	ForAll x In arr2
+		If ArrayIsMember(resArr,x) Then
+			resArr = ArrayRemoveElement(resArr,x)
+		End If
+	End ForAll
+	
+	ArrayRemoveArray = resArr
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayIsMember:1:8
+Function ArrayIsMember(arr As Variant, elem As variant) As Boolean
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayIsMember" }
+	Dim ErrStr As String
+	Dim k As variant
+	
+	ArrayIsMember = False
+	k = ArrayGetIndex(Arr,elem)
+	If Not IsNull(k) Then ArrayIsMember = True
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayRemoveElement:1:8
+Function ArrayRemoveElement(arr As Variant,elem As Variant) As Variant
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayRemoveElement" }
+	Dim ErrStr As String
+
+	ArrayRemoveElement = FullTrim(ArrayReplaceElement(arr,elem,""))
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:
+End Function
+
+'++LotusScript Development Environment:2:1:ArrayDiffElements2:1:8
+Function ArrayDiffElements2(arr1 As Variant, arr2 As Variant) As Variant
+	%REM
+		Возвращает из первого массива элементы, которых нет во втором.
+	%END REM
+	On Error GoTo handler
+	Const FuncName = { Function "ArrayDiffElements2" }
+	Dim ErrStr As String
+	
+	Dim resArr As Variant
+	Dim i As Long
+	Dim j As Long
+	Dim index As Long
+	Dim fl As Boolean
+
+'	Call ArraySort(1,arr1)
+'	Call ArraySort(1,arr2)
+	
+	i = LBound(arr1)
+	j = LBound(arr2)
+	
+	For index = i To UBound(arr1)
+		fl = True
+		j = LBound(arr2)
+	
+		While ((j <= UBound(arr2) ) And fl)
+			If arr2(j) = arr1(index) Then 
+				fl = False
+			Else
+				j = j + 1
+			End If 
+		Wend
+		If fl Then
+			If IsArray(resArr) Then
+				resArr = ArrayAppendElement(resArr, arr1(index))
+			Else
+				resArr = ArrayInit(arr1(index))
+			End If
+		End If
+	Next index
+	
+	ArrayDiffElements2 = resArr
+	
+	GoTo endh
+handler:
+	ErrStr = libName & ", " & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:	
+End Function

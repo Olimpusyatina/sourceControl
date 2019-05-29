@@ -1,0 +1,108 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+Option Public
+Option Declare
+Use "ManagementStructureTools"
+Use "CustomViewNew"
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Sub Initialize
+Declare Function MSTUI_selectColleguesAndHead (userName As Variant, mult As Boolean) As DocumentCollection
+Declare Public Function MSTUI_SelectHeadsToLevel(lvl As Integer, mult As Boolean) As DocumentCollection
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const objName = {SL "ManagementStructureToolsUI"}
+Private nLine As String
+
+Private collegues As DocumentCollection
+Private customviewNow As String
+
+'++LotusScript Development Environment:2:2:Initialize:1:10
+Sub Initialize
+	nLine = Chr(10) & Chr(13)
+End Sub
+
+
+'++LotusScript Development Environment:2:1:MSTUI_selectColleguesAndHead:5:8
+' Library ManagementStructureToolsUI -> Function MSTUI_selectColleguesAndHead
+' Documentcollection
+' DCS-Olympiev Mar 22, 2019
+' *********************************************************************************
+Function MSTUI_selectColleguesAndHead (userName As Variant, mult As Boolean) As DocumentCollection
+	On Error GoTo ErrH
+
+	Dim userDoc As NotesDocument
+	
+	Print "start collect = " & Now
+	If collegues Is Nothing Then
+		Select Case TypeName(userName)
+		Case "NOTESDOCUMENT"
+			Set userDoc = userName
+		Case "STRING"
+			Set userDoc = MST_GetPersonDoc(CStr(userName))
+		Case Else
+			Error 5012, "Тип аргумента не верен"
+	End Select
+		
+		Dim dc As New DocumentCollection
+		Dim headDoc As NotesDocument
+		
+		Set headDoc = MST_GetHeadMain(userDoc)(0)
+		If headDoc Is Nothing Then Set headDoc = userDoc
+		
+		Call dc.addDocumentCollection(MST_GetCollegues(userDoc))
+		Call dc.addDocument(headDoc)
+		Set collegues = dc
+	End If
+	Print "end collect = " & Now
+	
+	
+	Dim dcResult As DocumentCollection
+	Dim view As NotesView
+
+	Set view = collegues.getFirstDocument().ParentDatabase.Getview("Telefons\ByName")
+	Print "start custom = " & Now	
+	If customViewNow = "" Then customviewNow = Now
+	Set dcResult = CV_pickListCustomView("ColleguesAndHead" & customViewNow, view, collegues, mult, "Сотрудники", "Выберите...")
+	
+	Set MSTUI_selectColleguesAndHead = dcResult
+
+
+	GoTo EndH
+ErrH:
+	Error Err, objName & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:1:MSTUI_SelectHeadsToLevel:1:8
+Public Function MSTUI_SelectHeadsToLevel(lvl As Integer, mult As Boolean) As DocumentCollection
+	On Error GoTo eh
+	Const funcName = {MSTUI_SelectHeadsToLevel} 
+	
+	Dim ws As New NotesUIWorkspace
+	Dim dc As NotesDocumentCollection
+'	Dim cv As CustomView
+	Dim view As NotesView
+	Dim dcResult As DocumentCollection
+	Print {Start search } & Now 
+	Set dc = MST_GetHeadsToLevel(lvl)
+	Print {Start view } & Now
+	Set view = dc.Parent.Getview("Telefons\ByName")
+'	Set cv = New CustomView
+'	Call cv.setTemplateView(view)
+'	Call cv.addToView(dc)
+'	Call cv.setTitle("Сотрудники")
+'	Call cv.setPrompt("Выберите...")
+'	Call cv.setMulti(mult)
+	Set dcResult = CV_pickListCustomView("HeadsToLevel", view, dc, mult, "Сотрудники", "Выберите...")
+	
+'	Set dcResult = cv.show()
+	Print {End } & Now
+	Set MSTUI_SelectHeadsToLevel = dcResult
+	
+	GoTo fn
+eh:
+	Dim errS As String
+	errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function

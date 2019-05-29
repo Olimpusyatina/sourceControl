@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?><note class="filter" maintenanceversion="1.0" replicaid="43258409002A14B3" version="10.0" xmlns="http://www.lotus.com/dxl">
+<noteinfo noteid="2a2" sequence="1" unid="0667DD5A22888FF1432583E700273A4F">
+<created><datetime>20190425T100828,31+03</datetime></created>
+<modified><datetime>20190529T103940,60+03</datetime></modified>
+<revised><datetime>20190425T100828,37+03</datetime></revised>
+<lastaccessed><datetime>20190529T103940,60+03</datetime></lastaccessed>
+<addedtofile><datetime>20190529T103940,60+03</datetime></addedtofile></noteinfo>
+<updatedby><name>CN=Pavel A. Aleshkevich/O=OTTO/C=RU</name><name>CN=Dell/O=PROMP/C=RU</name><name>CN=Pavel A. Aleshkevich/O=OTTO/C=RU</name><name>CN=Dell/O=PROMP/C=RU</name><name>CN=MSK-LotusTask/O=OTTO/C=RU</name><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name></updatedby>
+<wassignedby><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name></wassignedby>
+<item name="$PublicAccess" sign="true"><text>1</text></item>
+<item name="$Flags"><text>s34Q</text></item>
+<item name="$TITLE" sign="true"><text>A1_Setup2</text></item>
+<item name="$DesignerVersion" sign="true"><text>8.5.3</text></item>
+
+<item name="$POID"><datetime dst="true">20141126T120509,63+04</datetime></item>
+</note>

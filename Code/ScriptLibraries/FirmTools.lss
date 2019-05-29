@@ -1,0 +1,170 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+Option Public
+Option Declare
+Use "DatabaseTools"
+Use "ManagementStructureTools"
+
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Sub Initialize
+Declare Public Function FT_GetNamesMail(docF As NotesDocument) As String
+Declare Public Function FT_GetMailOption(doc As NotesDocument, eMailOption As String) As Variant
+Declare Public Function FT_Create1CRequest(doc As NotesDocument) As Boolean
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const objName = {SL "FirmTools"}
+Private nLine As String
+
+Private dbF As NotesDatabase
+Private dbNm As NotesDatabase
+Private viewNm As NotesView
+
+Private EMails List As String
+Private Passwords List As String
+
+Private dbReq As NotesDatabase
+
+
+'++LotusScript Development Environment:2:2:Initialize:1:10
+Sub Initialize
+	nLine = Chr(10) & Chr(13)
+	Set dbF = Nothing
+	Set dbNm = Nothing
+	Set viewNm = Nothing
+End Sub
+
+
+'++LotusScript Development Environment:2:1:FT_GetNamesMail:1:8
+Public Function FT_GetNamesMail(docF As NotesDocument) As String
+	On Error GoTo eh
+	Dim errS As String
+	
+	Dim docNm As NotesDocument
+	
+	FT_GetNamesMail = ""
+	If viewNm Is Nothing Then
+		Set dbNm = New NotesDatabase(docF.Parentdatabase.Server, "names.nsf")
+		Set viewNm = dbNm.Getview("($Users)")
+	End If
+	If InStr(docF.Getitemvalue("NotesAddress")(0), "/") > 0 Then
+		Set docNm = viewNm.Getdocumentbykey(docF.Getitemvalue("NotesAddress")(0))
+		If Not docNm Is Nothing Then
+			If docNm.Getitemvalue("MailFile")(0) <> "" Then
+				FT_GetNamesMail = docNm.Getitemvalue("InternetAddress")(0)
+			End If
+		End If
+	End If
+	
+	GoTo fn
+eh:
+	errS = Err & {, } & objName & {: PayRoll_GetNamesMail: in line }& Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+
+
+
+'++LotusScript Development Environment:2:1:FT_GetMailOption:1:8
+Public Function FT_GetMailOption(doc As NotesDocument, eMailOption As String) As Variant
+	'eMailOption = "EMail" Or "Password"
+	On Error GoTo eh
+	Dim errS As String
+	
+	Dim CallerUNID As String
+	Dim docF As NotesDocument
+	Dim fHead As Variant
+	Dim docFH As NotesDocument
+	Dim nLine As Variant
+	Dim i As Integer
+	Dim mail As String
+	Dim password As String
+	
+	CallerUNID = doc.Getitemvalue("CallerUNID")(0)
+	FT_GetMailOption = ""
+	If Len(CallerUNID) = 32 Then
+		If Not IsElement(EMails(CallerUNID)) Then
+			If dbF Is Nothing Then Set dbF = DBT_GetDbBySearchKey({ФИРМЫ})
+'			On Error Resume Next
+			Set docF = dbF.Getdocumentbyunid(CallerUNID)	
+'			On Error GoTo eh
+			
+			If Not docF Is Nothing Then
+				mail = FT_GetNamesMail(docF)
+				If mail = "" Then
+					CallerUNID = ""
+					fHead = MST_GetHeads(docF, "", True, False)
+					If UBound(fHead) = 0 Then GoTo fn
+					
+					For i = 0 To (UBound(fHead) - 1)
+						Set docF = Nothing
+						Set docF = fHead(i)
+						If Not docF Is Nothing Then
+							CallerUNID = docF.Universalid
+							If Not IsElement(EMails(CallerUNID)) Then
+								mail = FT_GetNamesMail(docF)
+								If mail = "" Then
+									CallerUNID = ""
+								Else
+									Exit For
+								End If
+							End If
+						End If
+					Next
+				End If
+			End If
+			
+			If CallerUNID <> "" Then
+				If Not IsElement(EMails(CallerUNID)) Then
+					EMails(CallerUNID) = mail
+					'Табельный номер сотрудника>_<ДДММГГГГ (дата рождения)
+					password = docF.Getitemvalue("TabNum")(0) & {_}
+					If IsDate(docF.Getitemvalue("BirthDay")(0)) Then
+						password = password & Right({00} & Day(docF.Getitemvalue("BirthDay")(0)), 2)
+						password = password & Right({00} & Month(docF.Getitemvalue("BirthDay")(0)), 2)
+						password = password & Year(docF.Getitemvalue("BirthDay")(0))
+					End If
+					Passwords(CallerUNID) = password
+				End If
+			End If
+		End If
+		If CallerUNID <> "" Then
+			Select Case eMailOption
+			Case "EMail": FT_GetMailOption = EMails(CallerUNID)
+			Case "Password": FT_GetMailOption = Passwords(CallerUNID)
+			End Select
+		End If
+	End If
+	
+	GoTo fn
+eh:
+	errS = Err & {, } & objName & {: PayRoll_GetMailOption: in line }& Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function
+
+
+
+'++LotusScript Development Environment:2:1:FT_Create1CRequest:1:8
+Public Function FT_Create1CRequest(doc As NotesDocument) As Boolean
+	On Error GoTo eh
+	Const funcName = {FT_Create1CRequest}
+	Dim docReq As NotesDocument
+
+	FT_Create1CRequest = False
+	If dbReq Is Nothing Then Set dbReq = DBT_GetDbBySearchKey("КАДРЫ.ЗАПРОСЫ")
+	Set docReq = New NotesDocument(dbReq)
+	Call docReq.Replaceitemvalue("Form", "PRRequest")
+	Call docReq.Replaceitemvalue("ReplicaID", doc.Parentdatabase.Replicaid)
+	Call docReq.Replaceitemvalue("Unid", doc.Universalid)
+	Call docReq.Replaceitemvalue("Now", Now())
+	Call docReq.Replaceitemvalue("ObjectName", "PersonMailOptions")
+	FT_Create1CRequest = docReq.Save(True, False)
+
+	GoTo fn
+eh:
+	Dim errS As String
+	errS = objName & {: } & funcName & {: in line} & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Function

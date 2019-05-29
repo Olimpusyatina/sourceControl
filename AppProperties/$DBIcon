@@ -1,0 +1,67 @@
+<?xml version='1.0' encoding='utf-8'?>
+<note class='form' xmlns='http://www.lotus.com/dxl' version='10.0' maintenanceversion='1.0'
+ replicaid='43258409002A14B3'>
+<noteinfo noteid='14a' unid='4F43FDBD3BC3FEA9432583850042089F' sequence='1'>
+<created><datetime>20190117T150115,83+03</datetime></created>
+<modified><datetime>20190529T103938,51+03</datetime></modified>
+<revised><datetime>20190117T150115,84+03</datetime></revised>
+<lastaccessed><datetime>20190529T103938,51+03</datetime></lastaccessed>
+<addedtofile><datetime>20190529T103938,51+03</datetime></addedtofile></noteinfo>
+<updatedby><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name></updatedby>
+<wassignedby><name>CN=Alexandr S. Olympiev/O=OTTO/C=RU</name></wassignedby>
+<item name='$TITLE'><text>$DBIcon</text></item>
+<item name='$Flags'><text>34Ci~Q</text></item>
+<item name='$ImagesWide' sign='true'><number>1</number></item>
+<item name='$ImagesHigh' sign='true'><number>1</number></item>
+<item name='$ImagesColorize' sign='true'><number>0</number></item>
+<item name='$FileSize' sign='true'><number>2297</number></item>
+<item name='$ImageData' sign='true'>
+<rawitemdata type='1'>
+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
+3dP0Af4PVO22wYw+lewAAAAASUVORK5CYII3
+</rawitemdata></item>
+<item name='$MimeType' sign='true'><text>image/png</text></item>
+<item name='$FileModDT' sign='true'><datetime>20190117T150102,68+03</datetime></item>
+<item name='$ImageNames' sign='true'><text>C:\Согласование\recycle.png</text></item>
+<item name='$DesignerVersion'><text>8.5.3</text></item></note>
+

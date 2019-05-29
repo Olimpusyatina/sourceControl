@@ -1,0 +1,659 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+Option Public
+Option Declare
+Use "A1_Setup"
+Use "DataBaseTools"
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Class Status
+Declare Sub Initialize
+Declare Function CanEditCAPI(doc As NotesDocument) As Boolean
+Declare Function Executing (Script As String, doc As NotesDocument, ScriptType As Integer) As Variant
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const libName = "(StatusLib)"
+Private nLine As String
+Dim errS As String
+Dim fName As String
+Dim dbS As NotesDatabase
+
+Public param As NotesDocument
+Public ReturnResult As Integer
+
+Public ExDocSend As NotesDocument
+Public docsForSave As collection
+Public movingCounter As Integer ' Счётчик количества переходов по статусам
+
+Private Const NOTE_FLAGS = 7 
+Private Const NOTE_FLAG_READONLY = &H0001
+Declare Private Sub W32_GetNoteInfo Lib "nnotes.dll" Alias "NSFNoteGetInfo" (ByVal noteHandle As Long, ByVal noteID As Integer,ValPtr As Integer)
+Declare Private Sub MAC_GetNoteInfo Lib "NotesLib" Alias "NSFNoteGetInfo" (ByVal noteHandle As Integer, ByVal noteID As Integer,ValPtr As Integer)
+
+Class Status
+	Private maindoc As NotesDocument
+	Private currentStatusNumber As String
+	Private NextStatusNumber As String
+	Private NextStatusDoc As NotesDocument
+	Private StatusActions As NotesDocumentCollection
+	Private NextStatusConditions As NotesDocumentCollection
+	Private StatusCollection As NotesDocumentCollection
+	Private StatusPath As Variant
+	Private CurrentStatusDoc As NotesDocument
+		
+	Sub New (mdoc As Variant, FieldName As String)
+		On Error GoTo ErrH
+		fName = "Status -> New"
+		If Not IsObject(mdoc) Then Error 5012, "Не верный аргумент основного документа документа"
+		If TypeName(mdoc) <> "NOTESDOCUMENT" Then Error 5012, "Не верный аргумент основного документа документа"
+			Set Me.maindoc = mdoc
+			Dim arr (0 To 3) As String
+			Me.StatusPath = mdoc.Parentdatabase.Replicaid & "~" & mdoc.Getitemvalue("Form")(0) & "~" & FieldName
+			Me.currentStatusNumber = mdoc.Getitemvalue(FieldName)(0)
+			
+			Set Me.StatusCollection = dbS.GetView("StatusesByStructureGet").Getalldocumentsbykey(Me.StatusPath)
+			Set Me.CurrentStatusDoc = Me.StatusCollection.Getfirstdocument()
+			Do While Not Me.CurrentStatusDoc Is Nothing
+				If Me.CurrentStatusDoc.GetItemValue("ID")(0) = Me.currentStatusNumber Then Exit Do
+				Set Me.CurrentStatusDoc = Me.StatusCollection.Getnextdocument(Me.CurrentStatusDoc)
+			Loop
+			' Olimpus 10.2018 <<
+			' Если нет статуса - присваиваем начальный (с номером 0)
+'			If Me.CurrentStatusDoc Is Nothing Then Error 5012, "Не найден документ статуса!"
+			If Me.CurrentStatusDoc Is Nothing Then Call Me.setFirstStatus()
+			' Olimpus >>
+			GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:
+	End Sub
+	
+	Function MoveToStatus (statusName As String) As Boolean
+		On Error GoTo ErrH
+		fName = "Status -> MoveToStatus"
+		
+		MoveToStatus = False
+		If docsForSave Is Nothing Then
+		Set docsForSave = New collection
+		Call docsForSave.InitCollection(Me.maindoc) 
+	Else
+		Call docsForSave.AppendElement(Me.maindoc)
+	End If
+			Call Me.maindoc.Replaceitemvalue("ProccessingMoveToStatus", "1")
+			MovingCounter = movingCounter + 1
+			Call Me.SetNextStatus(StatusName)
+			
+			' Проверяем доступность перехода на статус
+			If Not Me.IsAvailibleStatus() Then
+			'	Error 5012, "Переход на статус " & statusName & " " & Me.NextStatusDoc.Getitemvalue("Alias")(0) & " недоступен!" 
+				GoTo EndH
+			End If
+		'	If Me.needToGo then
+'				Call Me.maindoc.Replaceitemvalue( Me.NextStatusDoc.Getitemvalue("dbFieldName")(0), Me.NextStatusDoc.Getitemvalue("Alias"))
+'				Call Me.maindoc.Replaceitemvalue( Me.NextStatusDoc.Getitemvalue("dbFieldCode")(0), Me.NextStatusDoc.Getitemvalue("ID"))
+'				Call Me.maindoc.Replaceitemvalue(Me.NextStatusDoc.Getitemvalue("dbFieldIcon")(0), Me.NextStatusDoc.Getitemvalue("StatusIcon")(0))
+'				Call Me.maindoc.Replaceitemvalue(Me.NextStatusDoc.Getitemvalue("dbFieldDate")(0), Now)
+		'	End if
+			' Выполняем действия при переходе
+			If Not Me.MakeAction() Then
+				Error 5012, {"Переход на статус "} & statusName & " " & Me.NextStatusDoc.Getitemvalue("Alias")(0) & {" невозможен из-за невыполнения действий при переходе!} 
+				GoTo EndH
+			End If
+
+			' Выполняем связанные статусы
+			If Not Me.MoveToStatusRelative Then
+				Error 5012, {Переход на статус "} & statusName & " " & Me.NextStatusDoc.Getitemvalue("Alias")(0) & {" невозможен из-за связанных статусов!} 
+				GoTo EndH
+			End If
+			Call setStatus()
+			MovingCounter = MovingCounter - 1
+			Call Me.maindoc.Removeitem("ProccessingMoveToStatus")
+			If MovingCounter = 0 Then Call Me.Save
+			Movetostatus = True
+		GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:
+	End Function
+
+	Function IsAvailibleStatus As Boolean
+		On Error GoTo ErrH
+		fName = "Status -> IsAvailibleStatus"
+		
+		'Проверяем на доступность перехода			
+		IsAvailibleStatus = Me.CheckTransit()
+		If IsAvailibleStatus = False Then GoTo Endh
+		
+		'Проверяем по условиям доступности
+		IsAvailibleStatus = Me.CheckConditions()
+	
+		
+		GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:
+	End Function
+	
+	Private Function CheckConditions As Boolean
+		On Error GoTo ErrH
+		fName = "Status -> CheckConditions"
+		
+		CheckConditions = True
+		
+		Set Me.NextstatusConditions = dbS.Getview("StatusConditionsGet").Getalldocumentsbykey(Me.NextStatusDoc.Universalid)
+		If Me.NextStatusConditions Is Nothing Then GoTo EndH
+		If Me.NextStatusConditions.Count = 0 Then GoTo EndH
+		Dim ConditionDoc As NotesDocument
+		Dim script As String
+		Dim scriptType As Integer
+		Dim result As Variant
+		Set ConditionDoc = Me.NextStatusConditions.Getfirstdocument()
+		While Not ConditionDoc Is Nothing 
+			If ConditionDoc.Getitemvalue("Active")(0) = "1" Then
+				script = ConditionDoc.GetitemValue("StatusCondition")(0)
+				scriptType = CInt(ConditionDoc.Getitemvalue("StatusConditionType")(0))
+				result = Executing (script, Me.maindoc, scriptType)
+				If result = "0" Then
+					CheckConditions = False
+					GoTo EndH
+				End If
+			End If
+			Set ConditionDoc = Me.NextStatusConditions.Getnextdocument(ConditionDoc)
+		Wend
+		
+		GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:	
+	End Function
+	
+	Private Function MakeAction As Boolean
+		On Error GoTo ErrH
+		fName = "Status -> MakeAction"
+		
+		MakeAction = True
+		
+		Dim actionDoc As NotesDocument
+		Dim ActionDocNext As NotesDocument
+		Dim NextActions As NotesDocumentCollection
+	
+		' Собираем все действия (как текущего статуса, так и следующего
+		Set Me.StatusActions = dbS.Getview("StatusActionsGet").Getalldocumentsbykey(Me.CurrentStatusDoc.Universalid)
+
+		Set actionDoc = Me.StatusActions.Getfirstdocument()
+		While Not Actiondoc Is Nothing
+			Set ActionDocNext =  Me.StatusActions.Getnextdocument(ActionDoc)
+			If ActionDoc.Getitemvalue("WhenDo")(0) <> "0"_
+			Or ActionDoc.Getitemvalue("Active")(0) <> "1" Then Call Me.StatusActions.Deletedocument(ActionDoc)
+			Set ActionDoc = ActionDocNext
+		Wend
+		
+		Set NextActions =  dbS.Getview("StatusActionsGet").Getalldocumentsbykey(Me.NextStatusDoc.Universalid)
+		Set actionDoc = NextActions.Getfirstdocument()
+		While Not Actiondoc Is Nothing
+			Set ActionDocNext =  NextActions.Getnextdocument(ActionDoc)
+			If ActionDoc.Getitemvalue("WhenDo")(0) = "1"_
+			And ActionDoc.Getitemvalue("Active")(0) = "1" Then Call Me.StatusActions.Adddocument(ActionDoc)
+			Set ActionDoc = ActionDocNext
+		Wend
+		
+		'If NextActions.Count > 0 Then Call Me.StatusActions.Merge(NextActions)
+				
+		' Выполняем действия
+		Dim script As String
+		Dim scriptType As Integer
+		Dim result As Variant
+		Set ActionDoc = Me.StatusActions.Getfirstdocument()
+		While Not ActionDoc Is Nothing
+			script = ActionDoc.Getitemvalue("StatusAction")(0)
+			scriptType = CInt(ActionDoc.Getitemvalue("StatusActionType")(0))
+			result = Executing(script, Me.maindoc, scriptType)
+			If result = "0" Then
+				MakeAction = False
+				GoTo EndH
+			End If
+			Set ActionDoc = Me.StatusActions.GetNextdocument(ActionDoc)
+		Wend
+				
+		GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:	
+	End Function
+	
+	Private Sub Save
+		On Error GoTo ErrH
+		fName = "Status -> Save"
+		
+		Call docsforsave.SaveCollection(True, False, False)
+		
+		GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:	
+	End Sub
+	
+	Sub SetNextStatus (StatusNumber)
+		On Error GoTo ErrH
+		fName = "Status -> SetNextStatus"
+		
+		Me.NextStatusNumber = StatusNumber
+		Set Me.NextStatusDoc = Me.StatusCollection.Getfirstdocument()
+		Do While Not Me.NextStatusDoc Is Nothing
+			If Me.NextStatusDoc.GetItemValue("ID")(0) = Me.NextStatusNumber Then Exit Do
+			Set Me.NextStatusDoc = Me.StatusCollection.Getnextdocument(Me.NextStatusDoc)
+		Loop
+		
+		If Me.NextStatusDoc Is Nothing Then Error 5012, "Не найден документ следующего статуса!"
+				
+		GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:	
+	End Sub
+
+	Function GetNextStatusNames As Variant
+		' 
+		On Error GoTo ErrH
+		fName = "Status -> GetNextStatusNames"
+		
+		Dim nsDoc As NotesDocument
+		ReDim arr(0) As Variant
+		Set nsDoc = Me.StatusCollection.Getfirstdocument()
+		While Not nsDoc Is Nothing
+			If nsDoc.Getitemvalue("ID")(0) <> Me.currentStatusNumber Then
+				Me.SetNextStatus( nsDoc.Getitemvalue("ID")(0))
+				'If Me.IsAvailibleStatus() Then
+				If Me.CheckTransit() then 
+					If arr(UBound(arr)) <> "" Then ReDim Preserve arr(UBound(arr)+1)
+					arr(UBound(arr)) = nsDoc.Getitemvalue("Alias")(0)
+				End If
+			End If
+			Set nsDoc = Me.StatusCollection.Getnextdocument(nsDoc)
+		Wend
+		
+		GetNextStatusNames =arr
+		
+		GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:	
+	End Function
+	
+	Function GetNextStatusCodeByName (statusName As String) As String
+		On Error GoTo ErrH
+		fName = "Status -> GetNextStatusCodeByName"	
+		
+		Dim sDoc As NotesDocument
+		Dim nsDoc As NotesDocument
+		Dim stCol As NotesDocumentCollection
+		
+		Set stCol = Me.StatusCollection
+		Set sDoc = stCol.Getfirstdocument()
+		While Not sDoc Is Nothing
+			Set nsDoc = stCol.Getnextdocument(sDoc)
+			If sDoc.Getitemvalue("Alias")(0) <> statusName Then Call stCol.Deletedocument(sDoc)
+			Set sDoc = nsDoc
+		Wend
+		Set sdoc = stCol.Getfirstdocument()
+		If stCol.count > 1 Then
+			Do While Not sDoc Is Nothing
+				Me.SetNextStatus(sDoc.Getitemvalue("ID")(0))
+				If Me.IsAvailibleStatus() Then Exit Do
+				Set sDoc = stCol.Getnextdocument(sDoc)
+			Loop
+			GetNextStatusCodeByName = sDoc.Getitemvalue("ID")(0)
+		ElseIf stCol.count <> 1 Then
+			Error 5012, "Не найден переход на данный статус!"
+		End If
+		
+		GetNextStatusCodeByName = sDoc.Getitemvalue("ID")(0)
+		
+		GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:	
+	End Function
+	
+	Function MoveToStatusRelative As Boolean
+		On Error GoTo ErrH
+		fName = "Status -> MoveToStatusRelative"
+		
+		MoveToStatusRelative = True
+		Dim SRCol As NotesDocumentCollection
+		Dim srDoc As NotesDocument
+		Dim RelStatus As Status
+		Dim RelDoc As NotesDocument
+		Dim RelDB As NotesDatabase
+		Dim unids As Variant
+		Dim RelMoveResult As Boolean
+		
+		Set SRCol = dbS.Getview("StatusesRelatedGet").Getalldocumentsbykey(Me.NextStatusDoc.Universalid)		
+		If SRCol Is Nothing Then GoTo Endh 
+		If SRCol.count < 1 Then GoTo EndH
+		
+		Set SRDoc = SRCol.Getfirstdocument()
+		Do While Not SRDoc Is Nothing
+			Set RelDB = DBT_GetDbBySearchKey(SrDoc.Getitemvalue("dbSearchKey")(0))
+			If Not DocsForSave.GetDBFromCollection(RelDB) Is Nothing Then Set RelDB = DocsForSave.GetDBFromCollection(RelDB) 
+			If RelDB Is Nothing Then Error 5012, "Не найдена БД по ключу " & SrDoc.Getitemvalue("dbSearchKey")(0)
+			If Not RelDB.Isopen Then Error 5012, "Не найдена БД по ключу " & SrDoc.Getitemvalue("dbSearchKey")(0)
+			Unids = Me.maindoc.Getitemvalue(SRDoc.Getitemvalue("dbUnidRelated")(0))
+			If unids(0) = "" Then GoTo EndH
+			ForAll Unid In unids
+				Set RelDoc = docsForSave.RegetDocument(Unid)
+				If Not relDoc Is Nothing Then
+					If relDoc.Getitemvalue("ProccessingMoveToStatus")(0) = "1" Then 
+						If relDoc.Getitemvalue(SRDoc.Getitemvalue("dbFieldCode")(0))(0) = SRDoc.Getitemvalue("ID")(0) Then GoTo NextUNID
+					End If
+				Else
+					Set RelDoc = RelDB.Getdocumentbyunid(unid)
+					If RelDoc Is Nothing Then GoTo NextUniD 
+					If relDoc.Getitemvalue(SRDoc.Getitemvalue("dbFieldCode")(0))(0) = SRDoc.Getitemvalue("ID")(0) Then GoTo NextUNID
+				End If
+				Set RelStatus = New Status (RelDoc, SRDoc.Getitemvalue("dbFieldCode")(0))
+				RelMoveResult = RelStatus.MoveToStatus(SRDoc.Getitemvalue("ID")(0))		
+				If Not RelMoveResult Then Error 5012, "Не удалось перевести на статус связанный документ"		
+NextUNID:
+			End ForAll
+			Set SRDoc = SRCol.Getnextdocument(SRDoc) 
+		Loop
+		
+		GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:	
+	End Function
+	
+	Private Function CheckTransit As Boolean
+		On Error GoTo ErrH
+		fName = "Status -> CheckTransit"
+		
+		
+		Dim Transitcollection As NotesDocumentCollection
+		Dim Statustransit As NotesDocument, StatusTransitNext As NotesDocument	
+		Dim key (0 To 1) As String, counter As Integer, fullaccess
+				
+		fullaccess = Me.NextStatusDoc.GetItemValue("FullAccess")(0)
+		If FullAccess = "1" Then CheckTransit= True
+			
+		key(0) = Me.CurrentStatusDoc.Universalid
+		key(1) = Me.NextStatusDoc.Universalid
+		Set Transitcollection = dbS.Getview("StatusesNextGet").Getalldocumentsbykey(key)
+	
+		If TransitCollection Is Nothing Then GoTo EndH
+		If Transitcollection.Count < 1 Then GoTo Endh
+		
+		Counter = Transitcollection.count
+		CheckTransit= False
+		Set StatusTransit = Transitcollection.GetFirstDocument
+		While Not StatusTransit Is Nothing
+			If StatusTransit.Getitemvalue("Active")(0) = "1" Then
+				Dim script As String
+				Dim scriptType As Integer
+				Dim result As Variant
+				script = StatusTransit.GetitemValue("StatusTransit")(0)
+				scriptType = CInt(StatusTransit.Getitemvalue("StatusTransitType")(0))
+				result = Executing (script, Me.maindoc, scriptType)
+				If result <> "0" Then 
+					Counter = Counter - 1
+				Else
+					GoTo Endh
+				End If
+			Else
+				Counter = Counter - 1
+			End If
+			Set StatusTransit = Transitcollection.GetNextDocument(statusTransit)
+		Wend
+		
+		If Counter = 0 Then CheckTransit= True
+		
+		GoTo EndH
+ErrH:
+		errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+		Error Err, errS
+EndH:	
+	End Function
+	
+	' StatusLib -> Function GetCurrentStatusNumber
+	' String
+	' DCS-Olympiev Feb 1, 2018 
+	' *********************************************************************************
+	Function GetCurrentStatusNumber As String
+		Const FuncName = {GetCurrentStatusNumber}
+		On Error GoTo Errh
+
+		GetCurrentStatusNumber = Me.currentStatusNumber
+
+		GoTo EndH
+ErrH:
+		Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+		Resume EndH 
+EndH:
+	End Function
+	' StatusLib -> Function needToGo
+	' Boolean
+	' DCS-Olympiev Feb 1, 2018 
+	' *********************************************************************************
+	Private Function needToGo As Boolean
+		Const FuncName = {needToGo}
+		On Error GoTo Errh
+
+		needToGo = True
+		
+		If me.NextStatusDoc.Getitemvalue("needToGo")(0) = "1" Then needToGo = False
+
+		GoTo EndH
+ErrH:
+		Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+		Resume EndH 
+EndH:
+	End Function
+	' Library StatusLib -> Sub setFirstStatus
+	' 
+	' DCS-Olympiev Oct 12, 2018
+	' *********************************************************************************
+	Sub setFirstStatus()
+	Const FuncName = {setFirstStatus}
+	On Error GoTo ErrH
+		
+	Set NextStatusDoc = dbS.GetView("StatusesByStructureGet").Getdocumentbykey(Me.StatusPath)
+	Call setStatus()
+		
+	GoTo EndH
+ErrH:
+	Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+	Resume EndH
+EndH:
+	End Sub
+	' Library StatusLib -> Function setStatus
+	' Boolean
+	' DCS-Olympiev Oct 12, 2018
+	' *********************************************************************************
+	Function setStatus() As Boolean
+	Const FuncName = {setStatus}
+	On Error GoTo ErrH
+
+		Call Me.maindoc.Replaceitemvalue( Me.NextStatusDoc.Getitemvalue("dbFieldName")(0), Me.NextStatusDoc.Getitemvalue("Alias"))
+		Call Me.maindoc.Replaceitemvalue( Me.NextStatusDoc.Getitemvalue("dbFieldNameEn")(0), Me.NextStatusDoc.Getitemvalue("AliasEn"))
+		Call Me.maindoc.Replaceitemvalue( Me.NextStatusDoc.Getitemvalue("dbFieldCode")(0), Me.NextStatusDoc.Getitemvalue("ID"))
+		Call Me.maindoc.Replaceitemvalue(Me.NextStatusDoc.Getitemvalue("dbFieldIcon")(0), Me.NextStatusDoc.Getitemvalue("StatusIcon")(0))
+		Call Me.maindoc.Replaceitemvalue(Me.NextStatusDoc.Getitemvalue("dbFieldDate")(0), Now)
+		Set Me.CurrentStatusDoc = me.NextStatusDoc
+		Set Me.NextStatusDoc = Nothing
+		
+	GoTo EndH
+ErrH:
+	Error Err, FuncName & ", стр. " & CStr(Erl) & Chr(10) & Chr(13) & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library StatusLib -> Function getApprovalStatus
+	' String
+	' 1 - Черновик
+	' 2 - Подготовка
+	' 3 - Подготовлен
+	' 4 - Согласование
+	' 5 - Согласован
+	' DCS-Olympiev Nov 12, 2018
+	' *********************************************************************************
+	Function getApprovalStatus(appCode As String) As String
+		Const FuncName = {getApprovalStatus}
+		On Error GoTo ErrH
+		
+		Dim key(0 To 1) As String
+		Dim statusDoc As NotesDocument
+		key(0) = me.StatusPath
+		key(1) = CStr(appCode)
+		Set statusDoc = dbS.getview("(ApprovalStatuses)").Getdocumentbykey(key)
+		getApprovalStatus = statusDoc.Getitemvalue("ID")(0)
+
+		GoTo EndH
+ErrH:
+		Error Err, funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library StatusLib -> Function clear
+	' Boolean
+	' DCS-Olympiev Nov 28, 2018
+	' *********************************************************************************
+	Function clear As Boolean
+	Const FuncName = {clear}
+	On Error GoTo ErrH
+
+	If Not docsForSave Is Nothing Then Call docsForSave.ReInitialize()
+	
+	GoTo EndH
+ErrH:
+	Error Err, funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+End Class
+'++LotusScript Development Environment:2:2:Initialize:1:10
+Sub Initialize
+	On Error GoTo errH
+	fName = "Status.Initialize"
+	
+	nLine = Chr(10) & Chr(13)
+	Set dbS = DBT_GetDbBySearchKey("STATUSES")
+	movingCounter = 0
+	GoTo fn
+errH:
+	errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+fn:
+End Sub
+
+
+'++LotusScript Development Environment:2:1:CanEditCAPI:1:8
+Function CanEditCAPI(doc As NotesDocument) As Boolean
+	On Error GoTo handler
+	Const FuncName = { Function "CanEditCAPI" }
+	Dim ErrStr As String
+	
+	Dim hNote As Long
+	Dim mhNote As Integer
+	Dim NoteFlags As Integer
+	
+	Dim macro As Variant
+	
+	macro = Evaluate({@Platform([SPECIFIC])})
+	
+	Select Case macro(0)
+			
+			'NOTE: This case may have to be updated to support Windows 98
+		Case "Windows/95", "Windows/NT" :
+			hNote = doc.HANDLE
+			If hNote <> 0 Then 
+				Call W32_GetNoteInfo (hNote, NOTE_FLAGS, NoteFlags)
+			End If
+		Case "SOLARIS x86", "SOLARIS Sparc" :
+		Case "HP UNIX" :
+		Case "AIX" :
+			'Note, although a Mac platform can be detected, this class does not yet support the Mac
+		Case "Macintosh/68K", "Macintosh/PowerPC":
+			mhNote = doc.HANDLE
+			If mhNote <> 0 Then 
+				Call MAC_GetNoteInfo (mhNote, NOTE_FLAGS, NoteFlags)
+			End If
+			
+		Case Else :
+	End Select
+	
+	If NoteFlags And NOTE_FLAG_READONLY Then CanEditCAPI = False Else CanEditCAPI = True
+	
+	GoTo endh
+handler:
+	ErrStr = libName & FuncName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, ErrStr
+endh:		
+End Function
+
+
+
+
+'++LotusScript Development Environment:2:1:Executing:1:8
+Function Executing (Script As String, doc As NotesDocument, ScriptType As Integer) As Variant
+' Выполняет Execute или Evaluate по следующим правилам:
+' doc - документ, который передаётся в скрипт как param для Execute или как основной документ для Evaluate 
+' Script - выполняемая формула
+' ScriptType - тип формулы: 1 - @формула, 2 - LotusScript
+' В скрипте не использовать save! Вместо этого класть документы в docsforsave коллекцию. По окончанию перехода на статус - коллекция сохраняется
+	On Error GoTo ErrH
+	fName = "Executing"
+	
+	If doc Is Nothing Then Error 5012, "Передаваемый документ не может быть nothing!"
+	Set param = doc
+	If scriptType = 0 Then
+		Dim result As Variant
+		result = Evaluate(script, param)
+		ReturnResult = result(0)
+	ElseIf scriptType = 1 Then
+		Execute (script)
+	Else
+		Error 5012, "Неверный аргумент типа скрипта!"
+	End If
+	
+	Set doc = param
+	
+	Executing = ReturnResult
+	
+	GoTo EndH
+ErrH:
+	errS = libName & ", " & fName & ": " & Err &", в стр " & Erl & nLine & Error$
+	Error Err, errS
+EndH:	
+End Function
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

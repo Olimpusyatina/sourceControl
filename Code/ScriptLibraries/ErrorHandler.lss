@@ -1,0 +1,225 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+%REM
+	Library ErrorHandler
+	Created Jan 30, 2019 by Alexandr S. Olympiev/OTTO/RU
+	Description: Comments for Library
+%END REM
+Option Public
+Option Declare
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Class ErrorHandler
+Declare Sub Initialize
+Declare Function ERR_getDB() As NotesDatabase
+Declare Sub ErrorCatch (ErrN As Integer, ErrTrace As String) 
+Declare Sub ErrorCatchWithRecycle(ErrN As Integer, ErrTrace As String, objects As Variant)
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const DesignElem = {ErrorHandler}
+Private Const ERRORS_DB_FILEPATH = "System\Errors.nsf"
+Private Const ERRORS_VIEW_NAME = "(ErrorsByNumber)"
+
+Private nLine As String
+Private errDb As NotesDatabase
+Private currDb As NotesDatabase
+Private errView As NotesView
+Private errH As ErrorHandler
+' Library ErrorHandler -> Class ErrorHandler
+' 
+' DCS-Olympiev Jan 31, 2019
+' *********************************************************************************
+Class ErrorHandler
+	Private local As String
+	Private ErrDoc As NotesDocument
+	Private msgParam As Integer
+	
+	Sub New
+		On Error GoTo ErrH
+		Dim s As New NotesSession
+		local = s.Getenvironmentstring("localLang")
+		If local = "" Then local = "RUS" 
+	GoTo Endh
+ErrH:
+		Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub
+	' Library ErrorHandler -> Sub ErrorHandler
+	' 
+	' DCS-Olympiev Jan 31, 2019
+	' *********************************************************************************
+	Sub ErrorHandler (ErrN As Integer, ErrTrace As String)
+	On Error GoTo ErrH
+
+	If ErrN = 0 Then GoTo EndH
+	If Err = 0 Then GoTo EndH
+	Dim ErrString As String
+	msgParam = 0	
+	Set errDoc = errView.Getdocumentbykey(CStr(ErrN))
+	If errDoc Is Nothing Then
+		msgParam = 0 + 16 + 4096
+		ErrString = ErrTrace
+		GoTo message
+	End If 
+			
+	If ErrDoc.Getitemvalue("needLog")(0) = "1" Then
+		Dim alog As NotesLog
+		Set aLog = New NotesLog (currDb.Filepath)
+		Call aLog.OpenNotesLog(currDb.Server, "alog.nsf")
+		Call aLog.Logerror(ErrN, Implode(Split(ErrTrace, nLine), "~"))
+	End If	
+	
+	ErrString = getErrorString()
+		
+message:
+		
+	If MsgBox (ErrString, msgParam) = 6 Then
+		Dim memo As NotesDocument
+		Dim sendTo (0 To 1) As String
+		Set memo = err_getDb.Createdocument()
+		Call memo.Replaceitemvalue("form", "memo")
+		Call memo.Replaceitemvalue("subject", "Ошибка у пользователя!")
+		sendTo(0) = "CN=Alexandr S. Olympiev/O=OTTO/C=RU"
+		sendTo(1) = "CN=Sergey A. Tyschuk/O=OTTO/C=RU"
+		Call memo.Replaceitemvalue("sendTo", sendTo)
+		Call memo.Replaceitemvalue("body", Errtrace)
+		Call memo.Send(False)
+	End If
+	
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub
+	' Library ErrorHandler -> Function getErrorString
+	' String
+	' DCS-Olympiev Jan 31, 2019
+	' *********************************************************************************
+	Function getErrorString As String
+	On Error GoTo ErrH
+
+	If local = "RUS" Then
+		getErrorString = errDoc.Getitemvalue("TextRu")(0)
+	ElseIf local = "ENG" Then
+		getErrorString = errDoc.Getitemvalue("TextEn")(0)
+	End If
+	
+	msgParam = 16
+	
+	If ErrDoc.getItemValue("needSend")(0) = "1" Then
+		If local = "RUS" Then
+			getErrorString = getErrorString & nLine & nLine & "Отправить сообщение администратору?"
+		ElseIf local = "ENG" Then
+			getErrorString = getErrorString & nLine & nLine & "Send message to administrator?"
+		End If
+		msgParam = msgParam + 4
+	End If
+	
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Function
+	' Library ErrorHandler -> Sub ErrorHandlerWithRecycle
+	' 
+	' DCS-Olympiev Jan 31, 2019
+	' *********************************************************************************
+	Sub ErrorHandlerWithRecycle (ErrN As Integer, ErrTrace As String, objects As Variant)
+	On Error GoTo ErrH
+
+	Call ErrorHandler(Errn, Errtrace)
+
+	If IsArray(objects) Then
+		ForAll object In objects
+			If TypeName(object) = "OBJECT" Then
+				
+			Else
+				Delete object
+			End If
+			
+		End ForAll
+	Else
+		Delete objects
+	End If
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & TypeName(Me) & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+	End Sub
+End Class
+'++LotusScript Development Environment:2:2:Initialize:2:10
+
+Sub Initialize
+	On Error GoTo ErrH
+	nLine = Chr(10) & Chr(13)
+	
+	Dim s As New NotesSession
+	
+	Set errView = Err_getDb.Getview(ERRORS_VIEW_NAME)
+	Set currDb = s.currentDatabase
+	
+	Set errH = New ErrorHandler()
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Sub
+
+
+'++LotusScript Development Environment:2:1:ERR_getDB:5:8
+' Library ErrorHandler -> Function ERR_getDB
+' NotesDatabase
+' DCS-Olympiev Jan 31, 2019
+' *********************************************************************************
+Function ERR_getDB() As NotesDatabase
+	On Error GoTo ErrH
+	
+	Dim s As New NotesSession
+
+	If ErrDb Is Nothing Then
+		Set ErrDb = s.Getdatabase(s.Currentdatabase.Server, ERRORS_DB_FILEPATH)
+	End If
+
+	Set ERR_getDb = ErrDb
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Function
+
+'++LotusScript Development Environment:2:2:ErrorCatch:5:8
+' Library ErrorHandler -> Sub ErrorCatch
+' 
+' DCS-Olympiev Jan 31, 2019
+' *********************************************************************************
+Sub ErrorCatch (ErrN As Integer, ErrTrace As String) 
+	On Error GoTo ErrH
+
+	Call errH.ErrorHandler(Errn, Errtrace)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Sub
+
+
+'++LotusScript Development Environment:2:2:ErrorCatchWithRecycle:5:8
+' Library ErrorHandler -> Sub ErrorCatchWithRecycle
+' 
+' DCS-Olympiev Jan 31, 2019
+' *********************************************************************************
+Sub ErrorCatchWithRecycle(ErrN As Integer, ErrTrace As String, objects As Variant)
+	On Error GoTo ErrH
+
+	Call errH.ErrorHandlerWithRecycle(Errn, Errtrace, Objects)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & GetThreadInfo(1) & ", c. " & CStr(ErL) & nLine & Error$
+EndH:
+End Sub

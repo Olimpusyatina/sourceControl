@@ -1,0 +1,773 @@
+'++LotusScript Development Environment:2:5:(Options):0:74
+%REM
+	Library DocumentCollection
+	Created Oct 26, 2018 by Alexandr S. Olympiev/OTTO/RU
+	Description: Comments for Library
+%END REM
+Option Public
+Option Declare
+
+'++LotusScript Development Environment:2:5:(Forward):0:1
+Declare Class DocumentCollection
+Declare Public Class Interface
+Declare Class ObjectCollection
+Declare Sub Initialize
+
+'++LotusScript Development Environment:2:5:(Declarations):0:10
+Private Const DesignElem = {DocumentCollection}
+Private nLine As String
+
+' Library TransactionLib -> Class DocumentCollection
+' 
+' DCS-Olympiev Oct 11, 2018
+' *********************************************************************************
+Class DocumentCollection
+	Private className As String
+	Private docArr() As NotesDocument
+	Private dbList List As NotesDatabase
+	Private pointer As Integer
+
+	Sub New 
+		className = {DocumentCollection}
+		Call resetCollection()
+	End Sub
+	' Library TransactionLib -> Function addDocuments
+	' Boolean
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function addDocumentFromDisk(doc As Variant) As NotesDocument
+		Const FuncName = {DocumentCollection.addDocumentFromDisk}
+		On Error GoTo ErrH
+
+		Dim db As NotesDatabase
+		Dim unid As String
+		Dim view As NotesView
+		
+		If doc.NoteID = 0 Then GoTo endH
+
+		Set db = doc.Parentdatabase
+
+		If Not IsElement(dbList(db.Replicaid)) Then
+			Set dbList(db.Replicaid) = db
+		Else
+			Set db = dbList(db.Replicaid)
+		End If
+		
+		unid = doc.Getitemvalue("UNID")(0)
+		If unid = "" Then unid = doc.Universalid
+		
+		Set view = db.getView("(ByUNID)")
+		Set doc = view.Getdocumentbykey(unid)
+		
+		If doc Is Nothing Then GoTo endH
+		
+		pointer = UBound(docArr)
+		ReDim Preserve docArr(pointer) As NotesDocument
+		Set docArr(pointer) = doc
+		
+		Set AddDocumentFromDisk = doc
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Sub save
+	' 
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Sub save
+		Const FuncName = {DocumentCollection.save}
+		On Error GoTo ErrH
+
+		Dim i As Integer
+		For i = LBound(docArr) To UBound(docArr)
+			Call docArr(i).Save(True, False)
+		Next
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Sub
+	' Library TransactionLib -> Function addInterfaceObject
+	' Variant
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function addInterfaceObject(inter As Interface) As Variant
+		Const FuncName = {DocumentCollection.addInterfaceObject}
+		On Error GoTo ErrH
+
+		Dim doc As NotesDocument
+		Dim obj As Variant
+		Dim tmpCol As New DocumentCollection
+		Dim tmpDoc As NotesDocument
+		
+		Set obj = inter.getDoc()
+		
+		If obj Is Nothing Then GoTo endh
+		
+		Select Case TypeName(obj)
+			Case "NOTESDOCUMENT"
+				Set tmpDoc = addDocumentFromDisk(obj)
+				If tmpDoc Is Nothing Then Call tmpCol.addDocument(obj)
+				'			Set addInterfaceObject = obj
+			Case "NOTESDOCUMENTCOLLECTION" 
+				Set doc = obj.getFirstDocument()
+				While Not doc Is Nothing
+					Set tmpDoc = addDocumentFromDisk(doc)
+					If tmpDoc Is Nothing Then Call tmpCol.addDocument(doc)
+					Set doc = obj.GetNextDocument(doc)
+				Wend
+				'			Set addInterfaceObject = obj
+			Case "DOCUMENTCOLLECTION"
+				Set doc = obj.getFirstDocument()
+				While Not doc Is Nothing
+					Set tmpDoc = addDocumentFromDisk(doc)
+					If tmpDoc Is Nothing Then Call tmpCol.addDocument(doc)
+					Set doc = obj.GetNextDocument()
+				Wend
+				'			Set addInterfaceObject = obj
+			Case Else
+				addInterfaceObject = False					
+		End Select
+		
+		Set addInterfaceObject = tmpCol
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function getFirstDocument
+	' NotesDocument
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function getFirstDocument () As NotesDocument
+		Const FuncName = {DocumentCollection.getFirstDocument}
+		On Error GoTo ErrH
+
+		pointer = 1
+		Set getFirstDocument = docArr(1)
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function getNextDocument
+	' NotesDocument
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function getNextDocument() As NotesDocument
+		Const FuncName = {DocumentCollection.getNextDocument}
+		On Error GoTo ErrH
+
+		pointer = pointer + 1
+		If pointer > UBound(docArr) Then
+			pointer = UBound(docArr)
+			GoTo endH
+		End If
+		
+		Set getNextDocument = docArr(pointer)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function getPrevDocument
+	' Variant
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function getPrevDocument()
+		Const FuncName = {DocumentCollection.getPrevDocument}
+		On Error GoTo ErrH
+
+		pointer = pointer - 1
+		If pointer < LBound(docArr) Then
+			pointer = LBound(docArr)
+			GoTo endH
+		End If
+		
+		Set getPrevDocument = docArr(pointer)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+
+	' Library TransactionLib -> Function getNthDocument
+	' NotesDocument
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function getNthDocument(position As Integer) As NotesDocument
+		Const FuncName = {DocumentCollection.getNthDocument}
+		On Error GoTo ErrH
+
+		If position > UBound(docArr) Or position < LBound(docArr) Then GoTo Endh
+		pointer = position
+		Set getNthDocument = docArr(pointer)
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function removeDocument
+	' Boolean
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function deleteDocument(doc) As Boolean
+		Const FuncName = {DocumentCollection.deleteDocument}
+		On Error GoTo ErrH
+
+		If Not IsNull(ArrayGetIndex(docArr, doc)) Then
+			For pointer = ArrayGetIndex(docArr, doc) To UBound(docArr)-1
+				Set docArr(pointer) = docArr(pointer+1)
+			Next
+			pointer = pointer - 1
+			ReDim Preserve docArr(pointer) As NotesDocument
+			
+		End If
+		deleteDocument = True
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function addDocument
+	' NotesDocument
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function addDocument (doc As Variant) As NotesDocument
+		Const FuncName = {DocumentCollection.addDocument}
+		On Error GoTo ErrH
+
+		If doc Is Nothing Then GoTo endH
+		
+		If Not IsElement(dbList(doc.Parentdatabase.Replicaid)) Then
+			Set dbList(doc.Parentdatabase.Replicaid) = doc.Parentdatabase
+		End If
+		If docArr(1) Is Nothing Then
+			Set docArr(pointer) = doc
+		Else
+			pointer = UBound(docArr) + 1
+			ReDim Preserve docArr(1 To pointer) As NotesDocument
+			Set docArr(pointer) = doc			
+		End If
+
+		
+		Set addDocument = doc
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function addDocumentCollection
+	' DocumentCollection
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function addDocumentCollection (col As Variant) As DocumentCollection
+		Const FuncName = {DocumentCollection.addDocumentCollection}
+		On Error GoTo ErrH
+
+		Dim doc As NotesDocument
+		
+		Set doc = col.getFirstDocument()
+		While Not doc Is Nothing
+			Call addDocument(doc)
+			If TypeName(col) = "NOTESDOCUMENTCOLLECTION" Then
+				Set doc = col.getNextDocument(doc)
+			Else
+				Set doc = col.getNextDocument()				
+			End If
+		Wend
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function removeAll
+	' Boolean
+	' Удаляет документы из БД и чистит коллекцию
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function removeAll As Boolean
+		Const FuncName = {DocumentCollection.removeAll}
+		On Error GoTo ErrH
+
+		Dim doc As NotesDocument
+
+		For pointer = 1 To UBound(docArr)
+			Call docArr(pointer).Remove(True)
+		Next
+		
+		removeAll = resetCollection()
+		
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function resetCollection
+	' Boolean
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function resetCollection As Boolean
+		Const FuncName = {DocumentCollection.resetCollection}
+		On Error GoTo ErrH
+
+		ReDim docArr(1 To 1)
+		Set docArr(1) = Nothing 
+		pointer = 1
+		Erase dbList
+		
+		resetCollection = True
+		
+		GoTo EndH 
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function count
+	' Long
+	' DCS-Olympiev Oct 30, 2018
+	' *********************************************************************************
+	Function count As Long
+	Const FuncName = {count}
+	On Error GoTo ErrH
+
+		count = UBound(docArr)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+End Class
+
+' Library TransactionLib -> Class Interface
+' 
+' DCS-Olympiev Oct 10, 2018
+' *********************************************************************************
+Public Class Interface
+
+	Sub New
+	End Sub
+
+	' Library TransactionLib -> Function save
+	' Variant
+	' DCS-Olympiev Oct 10, 2018
+	' *********************************************************************************
+	Function save As Boolean
+		Const FuncName = {Interface.save}
+		On Error GoTo ErrH
+
+		Error 9999, "Реализуй метод сейва в своём классе!!!"
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function getKey
+	' String
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function getKey() As String
+		Const FuncName = {Interface.getKey}
+		On Error GoTo ErrH
+
+		Error 9999, "Реализуй метод получения ключа в своём классе!!!"
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function getDoc
+	' NotesDocument
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function getDoc() As Variant
+		Const FuncName = {Interface.getDoc}
+		On Error GoTo ErrH
+
+		Error 9999, "Реализуй метод получения документа в своём классе!!!"
+
+		GoTo EndH
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library TransactionLib -> Function isNew
+	' Boolean
+	' DCS-Olympiev Oct 19, 2018
+	' *********************************************************************************
+	Function isNew As Boolean
+	Const FuncName = {Interface.isNew}
+	On Error GoTo ErrH
+
+		Error 9999, {Реализуй метод "новый ли?" в своём классе!!!}
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function getName
+	' String
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getName As String
+	Const FuncName = {getName}
+	On Error GoTo ErrH
+
+	Error 9999, {Реализуй метод получения имени в своём классе!!!}
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function removeMe
+	' Boolean
+	' DCS-Olympiev Nov 8, 2018
+	' *********************************************************************************
+	Function removeMe() As Boolean
+	Const FuncName = {removeMe}
+	On Error GoTo ErrH
+
+	Error 9999, {Реализуй метод удаления в своём классе!!!}
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function getValueForSort
+	' Variant
+	' DCS-Olympiev Dec 5, 2018
+	' *********************************************************************************
+	Function getValueForSort() As Variant
+	Const FuncName = {getValueForSort}
+	On Error GoTo ErrH
+
+	Error 9999, {Реализуй метод получения значения для сравнения в своём классе!!!}
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+End Class
+' Library DocumentCollection -> Class ObjectCollection
+' 
+' DCS-Olympiev Nov 2, 2018
+' *********************************************************************************
+Class ObjectCollection
+	Private className As String
+	Private ObjArr() As Interface
+	Private dbList List As NotesDatabase
+	Private pointer As Integer
+	
+Sub New 
+	className = {ObjectCollection}
+	Call resetCollection()
+End Sub
+	' Library TransactionLib -> Function resetCollection
+	' Boolean
+	' DCS-Olympiev Oct 11, 2018
+	' *********************************************************************************
+	Function resetCollection As Boolean
+		Const FuncName = {ObjectCollection.resetCollection}
+		On Error GoTo ErrH
+
+		ReDim ObjArr(1 To 1)
+		Set ObjArr(1) = Nothing 
+		pointer = 1
+		Erase dbList
+		
+		resetCollection = True
+		
+		GoTo EndH 
+ErrH:
+		Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(Erl) & nLine & Error$
+		Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function addObject
+	' Interface
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function addObject (obj As Interface) As Interface
+	Const FuncName = {DocumentCollection.addObject}
+	On Error GoTo ErrH
+
+		If obj Is Nothing Then GoTo endH
+		
+		
+		If objArr(pointer) Is Nothing Then
+			Set objArr(pointer) = obj
+		Else
+			If Not IsElement(dbList(obj.getDoc().Parentdatabase.Replicaid)) Then
+				Set dbList(obj.getDoc().Parentdatabase.Replicaid) = obj.getDoc().Parentdatabase
+			End If
+			pointer = UBound(objArr) + 1
+			ReDim Preserve objArr(1 To pointer) As Interface
+			Set objArr(pointer) = obj			
+		End If
+		
+		Set addObject = obj
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function addObjectCollection
+	' ObjectCollection
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function addObjectCollection (objects As ObjectCollection) As ObjectCollection
+	Const FuncName = {addObjectCollection}
+	On Error GoTo ErrH
+
+	Set addObjectCollection = Me
+	If objects Is Nothing Then GoTo Endh
+	
+	Dim object As Interface
+	Set object = objects.getFirstObject()
+	While Not object Is Nothing
+		Call addObject(object)
+		Set object = objects.getNextObject()
+	Wend
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function count
+	' Long
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function count As Long
+	Const FuncName = {count}
+	On Error GoTo ErrH
+
+	If UBound(objArr) = 1 And (objArr(1) Is Nothing) Then
+		count = 0
+	Else
+		count = UBound(objArr)
+	End If 
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function getFirstObject
+	' Interface
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getFirstObject () As Interface
+	Const FuncName = {getFirstObject}
+	On Error GoTo ErrH
+
+	pointer = 1
+	Set getFirstObject = objArr(pointer)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function getNextObject
+	' Interface
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getNextObject As Interface
+	Const FuncName = {getNextObject}
+	On Error GoTo ErrH
+
+	pointer = pointer + 1
+		If pointer > UBound(objArr) Then
+			pointer = UBound(objArr)
+		GoTo endH
+	End If
+	
+	Set getNextObject = objArr(pointer)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function getPrevObject
+	' Interface
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getPrevObject As Interface
+	Const FuncName = {getPrevObject}
+	On Error GoTo ErrH
+
+	pointer = pointer - 1
+	If pointer  < 1 Then
+		pointer = 1
+		GoTo endH
+	End If
+	Set getPrevObject = objArr(pointer) 
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function getLastObject
+	' Interface
+	' DCS-Olympiev Nov 2, 2018
+	' *********************************************************************************
+	Function getLastObject() As Interface
+	Const FuncName = {getLastObject}
+	On Error GoTo ErrH
+
+	pointer = UBound(objArr)
+	Set getLastObject = objArr(pointer)
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function deleteAllObjects
+	' Boolean
+	' DCS-Olympiev Nov 7, 2018
+	' *********************************************************************************
+	Function deleteAllObjects As Boolean
+	Const FuncName = {deleteAllObjects}
+	On Error GoTo ErrH
+
+	ForAll obj In objArr
+		If Not obj Is Nothing Then Call obj.removeMe()
+	End ForAll
+		
+		deleteAllObjects = true 
+    
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function save
+	' Boolean
+	' DCS-Olympiev Nov 23, 2018
+	' *********************************************************************************
+	Function save As Boolean
+	Const FuncName = {save}
+	On Error GoTo ErrH
+
+	ForAll obj In ObjArr
+		Call obj.save()
+	End ForAll
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+	' Library DocumentCollection -> Function sort
+	' Boolean
+	' direction - направление сортировки - если True, от от меньшего к большему, иначе от большего к меньшему
+	' DCS-Olympiev Dec 5, 2018
+	' *********************************************************************************
+	Function sort(direction As Boolean) As Boolean
+	Const FuncName = {sort}
+	On Error GoTo ErrH
+
+	Dim i As Long
+	Dim j As Long
+	Dim buffObj As Interface
+	Dim needAgain As Boolean
+	
+	For i = lBound(objArr) To UBound(objArr)-1
+		needAgain = False
+		For j = LBound(objArr) To UBound(objArr) - i
+			If objArr(j).getValueForSort() > objArr(j + 1).getValueForSort() = direction Then
+				Set buffObj = objArr(j + 1)
+				Set objArr(j + 1) = objArr(j)
+				Set objArr(j) = buffObj
+				needAgain = True
+			End If
+		Next
+		If Not needAgain Then Exit For
+	Next
+	
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+	End Function
+End Class
+'++LotusScript Development Environment:2:2:Initialize:2:10
+
+Sub Initialize
+	Const FuncName = {Initialize}
+	On Error GoTo ErrH
+	nLine = Chr(10) & Chr(13)
+
+
+
+	GoTo EndH
+ErrH:
+	Error Err, DesignElem & " -> " & funcName & ", c. " & CStr(ErL) & nLine & Error$
+	Resume EndH
+EndH:
+End Sub
+
+
+
+
+
+
+
+
+
+
+
+
